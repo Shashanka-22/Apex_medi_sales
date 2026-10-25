@@ -836,6 +836,28 @@
       "entityId": "usr_admin_001",
       "details": "User admin@apexmedisales.com logged in successfully",
       "ipAddress": "127.0.0.1",
+      "id": "aud_1792906422060_980",
+      "createdAt": "2026-10-25T05:33:42.060Z"
+    },
+    {
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User admin@apexmedisales.com logged in successfully",
+      "ipAddress": "127.0.0.1",
+      "id": "aud_1792906407406_760",
+      "createdAt": "2026-10-25T05:33:27.406Z"
+    },
+    {
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User admin@apexmedisales.com logged in successfully",
+      "ipAddress": "127.0.0.1",
       "id": "aud_1792903983536_728",
       "createdAt": "2026-10-25T04:53:03.536Z"
     },

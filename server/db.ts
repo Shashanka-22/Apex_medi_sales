@@ -301,8 +301,26 @@ export interface DatabaseState {
   auditLogs: AuditLog[];
 }
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DB_FILE = path.resolve(DATA_DIR, 'medical_store.db.json');
+function getStoragePaths() {
+  const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  const bundledFile = path.resolve(process.cwd(), 'data', 'medical_store.db.json');
+  
+  if (isServerless) {
+    const tmpDir = '/tmp/data';
+    return {
+      dir: tmpDir,
+      file: path.resolve(tmpDir, 'medical_store.db.json'),
+      bundledFile,
+    };
+  }
+
+  const localDir = path.resolve(process.cwd(), 'data');
+  return {
+    dir: localDir,
+    file: path.resolve(localDir, 'medical_store.db.json'),
+    bundledFile,
+  };
+}
 
 class DatabaseEngine {
   private state: DatabaseState | null = null;
@@ -312,20 +330,40 @@ class DatabaseEngine {
   }
 
   private ensureInitialized() {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    const { dir, file, bundledFile } = getStoragePaths();
+
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch (err) {
+      console.warn('Could not create directory:', dir, err);
     }
 
-    if (fs.existsSync(DB_FILE)) {
+    // 1. Try reading existing writable database file
+    if (fs.existsSync(file)) {
       try {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+        const raw = fs.readFileSync(file, 'utf-8');
         this.state = JSON.parse(raw);
         return;
       } catch (err) {
-        console.error('Failed reading existing db file, reseeding...', err);
+        console.error('Failed reading existing db file:', err);
       }
     }
 
+    // 2. Try reading pre-bundled database file if running on Vercel
+    if (fs.existsSync(bundledFile)) {
+      try {
+        const raw = fs.readFileSync(bundledFile, 'utf-8');
+        this.state = JSON.parse(raw);
+        this.persist();
+        return;
+      } catch (err) {
+        console.error('Failed reading bundled db file:', err);
+      }
+    }
+
+    // 3. Fall back to initial seed state
     this.state = this.getInitialSeedState();
     this.persist();
   }
@@ -333,9 +371,13 @@ class DatabaseEngine {
   private persist() {
     if (!this.state) return;
     try {
-      fs.writeFileSync(DB_FILE, JSON.stringify(this.state, null, 2), 'utf-8');
+      const { dir, file } = getStoragePaths();
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(file, JSON.stringify(this.state, null, 2), 'utf-8');
     } catch (err) {
-      console.error('Failed to persist database state:', err);
+      console.warn('Persist to filesystem skipped or failed (common in serverless):', err);
     }
   }
 
