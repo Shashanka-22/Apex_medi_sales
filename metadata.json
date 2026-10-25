@@ -1,0 +1,6 @@
+{
+  "name": "Apex Medi Sales - Medical Store Billing & GST Inventory ERP",
+  "description": "Production-grade Indian pharmacy billing, batch-wise inventory, supplier purchase invoice OCR AI extraction, GST tax invoicing, and ledger management system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,857 @@
+Act as a senior full-stack software architect, UI/UX designer, database engineer, security engineer, and pharmacy billing software specialist.
+
+Build a complete, production-oriented **Medical Store Billing, Inventory, Purchase, and GST Invoice Management Web Application** inspired by the attached reference images of an Indian medical distributor's billing software.
+
+The application must be genuinely functional, database-connected, responsive, secure, and deployable on Vercel. Do not build only a visual prototype. All forms, buttons, calculations, database operations, authentication, inventory changes, invoice generation, and reports must work.
+
+## 1. Core business objective
+
+Create an application for an Indian medical shop that allows the owner to:
+
+- Log in using initial credentials and change their username/password.
+- Manage medicines and batch-wise inventory.
+- Upload supplier purchase invoices as images or PDFs.
+- Automatically extract medicines and their details from invoices using OCR/AI.
+- Review and correct extracted details before saving them to inventory.
+- Generate customer bills and GST tax invoices.
+- Calculate medicine quantities, discounts, GST, totals, and rounding accurately.
+- Track stock, batch numbers, expiry dates, low-stock medicines, and expired medicines.
+- Manage suppliers, customers, purchases, sales, returns, and payments.
+- Download or print professional PDF invoices containing owner details and a QR code.
+- Access the system comfortably on desktop, tablet, and mobile.
+- Store all business data persistently in Neon PostgreSQL.
+
+Currency: Indian Rupees (INR, ₹).
+
+Timezone: Asia/Kolkata.
+
+Locale: en-IN.
+
+## 2. Mandatory technology stack
+
+Use the following stack:
+
+- Frontend and backend: Next.js App Router with TypeScript.
+- UI: React, Tailwind CSS or CSS modules, and a consistent component library such as shadcn/ui.
+- Styling: modern SaaS dashboard design, accessible controls, responsive layouts, clear typography, subtle shadows, rounded cards, and professional colors.
+- Database: Neon PostgreSQL.
+- ORM: Prisma.
+- Authentication: Auth.js credentials authentication or an equally secure server-side authentication implementation.
+- Password hashing: bcrypt or Argon2.
+- Validation: Zod.
+- Forms: React Hook Form.
+- Invoice generation: a reliable HTML-to-PDF or PDF generation library that works in Vercel's serverless environment.
+- QR codes: a maintained QR code generation library.
+- Invoice OCR: a provider-agnostic OCR/vision integration capable of reading scanned images and PDFs.
+- Deployment: Vercel.
+- Source control: GitHub.
+
+Use stable, mutually compatible package versions.
+
+Do not use localStorage as the primary database. Do not store passwords in plaintext. Do not expose database URLs, AI API keys, authentication secrets, or private credentials in client-side code.
+
+## 3. Authentication and account settings
+
+Create an attractive login page with:
+
+- Medical-store branding.
+- Username or email.
+- Password field with show/hide option.
+- Remember-session option, if implemented securely.
+- Login validation and clear error messages.
+- Logout functionality.
+- Responsive design.
+
+### Initial setup
+
+Provide an initial administrator account using these configurable environment variables:
+
+INITIAL_ADMIN_NAME=
+INITIAL_ADMIN_EMAIL=
+INITIAL_ADMIN_PASSWORD=
+
+Create the administrator securely through a database seed script or a protected, idempotent setup procedure.
+
+If demonstration credentials are necessary, document them clearly and require the administrator to change the initial password at first login. Never deploy a publicly accessible default password.
+
+### Account management
+
+After login, allow the administrator to:
+
+- Change username/email.
+- Change password after verifying the current password.
+- Configure their business profile.
+- Update invoice details.
+- Manage authorized users and their roles if multi-user access is enabled.
+
+Use secure HTTP-only session cookies, appropriate session expiry, rate limiting on login attempts, and server-side authorization checks.
+
+A user must never access another store's records without authorization.
+
+## 4. Business profile and owner details
+
+Create a Business Settings page with editable fields:
+
+- Medical store or distributor name.
+- Owner name.
+- Shop address.
+- City, state, and PIN code.
+- Phone number.
+- Email.
+- GSTIN.
+- Drug licence number.
+- Additional licence number, if applicable.
+- State code.
+- Invoice series and numbering preferences.
+- Logo upload.
+- Default invoice footer.
+- Terms and conditions.
+- Bank/payment details.
+- Default tax and rounding preferences.
+
+Seed the initial business name from configuration, not hardcoded assumptions.
+
+For example, allow the user to configure a store named APEX MEDI SALES, with editable address, phone, email, GSTIN, and drug licence information.
+
+The invoice must display the saved business details automatically.
+
+Validate GSTIN format where appropriate. Do not invent GSTINs, licences, or other regulatory details.
+
+## 5. Dashboard
+
+Design a beautiful dashboard with summary cards:
+
+- Today's sales.
+- Today's purchases.
+- Gross profit estimate.
+- Total inventory value.
+- Total medicine SKUs.
+- Low-stock medicines.
+- Medicines expiring soon.
+- Expired stock.
+- Outstanding customer payments.
+- Outstanding supplier payments.
+
+Include:
+
+- Sales chart for the last 7/30 days.
+- Top-selling medicines.
+- Recent invoices.
+- Recent purchases.
+- Stock movement summary.
+- Quick actions: New Sale, Add Purchase, Upload Invoice, Add Medicine, Customers, and Reports.
+
+All metrics must come from actual database queries. Display empty states when there is no data. Clearly distinguish estimated gross profit from net profit.
+
+## 6. Medicine inventory management
+
+Create a complete medicine inventory module.
+
+### Medicine master fields
+
+- Medicine ID.
+- Medicine name.
+- Generic name.
+- Brand/manufacturer.
+- Dosage form.
+- Strength.
+- Pack size.
+- Unit of measurement.
+- HSN code.
+- Barcode.
+- Prescription-required flag.
+- Minimum stock threshold.
+- Tax category.
+- Active/inactive status.
+
+### Batch-wise inventory fields
+
+- Medicine ID.
+- Batch number.
+- Manufacturing date, when available.
+- Expiry date.
+- Purchase rate.
+- MRP.
+- Selling rate.
+- Initial quantity.
+- Current quantity.
+- Free quantity.
+- Supplier.
+- Purchase invoice reference.
+- GST rate.
+- Discount.
+- Creation date.
+
+A medicine can have multiple batches with different purchase rates, MRPs, and expiry dates.
+
+Do not merge different batches into a single inventory record.
+
+### Inventory functions
+
+- Add, edit, search, filter, and deactivate medicines.
+- Add a new batch to an existing medicine.
+- View batch-wise stock.
+- View stock movement history.
+- Adjust stock with a mandatory reason.
+- Record damaged, expired, or returned stock.
+- Import and export inventory using Excel-compatible CSV files.
+- Search by medicine name, generic name, batch, barcode, or manufacturer.
+- View purchase rate, selling rate, MRP, stock value, and expiry.
+
+Use batch-wise inventory accounting. Deduct stock from batches using FEFO (First Expiry, First Out), unless the operator explicitly selects an eligible batch.
+
+Prevent negative inventory unless an authorized administrator explicitly enables and approves a controlled override.
+
+## 7. Supplier invoice upload — highest priority feature
+
+Build a dedicated **Upload Purchase Invoice** workflow.
+
+This is one of the most important features in the application.
+
+The user must be able to upload:
+
+- JPG.
+- JPEG.
+- PNG.
+- PDF.
+- Multi-page scanned PDFs.
+
+Support invoices similar to the attached reference images, including distributor invoices with tables containing:
+
+- Serial number.
+- Product/medicine name.
+- Packing.
+- HSN.
+- Manufacturer.
+- Batch number.
+- Expiry date.
+- Quantity.
+- Free quantity.
+- MRP.
+- Purchase rate.
+- Discount percentage.
+- GST percentage.
+- Line amount.
+
+Extract supplier details, invoice number, invoice date, GSTIN, tax summary, discounts, and grand total wherever visible.
+
+### OCR and AI extraction
+
+Implement a genuine OCR/vision pipeline using a configurable provider.
+
+Environment variables:
+
+OCR_PROVIDER=
+OCR_API_KEY=
+OCR_MODEL=
+
+The implementation must include an actual integration, not merely a mock response.
+
+The provider should be replaceable without rewriting the inventory module.
+
+If no API key is configured, show a clear configuration message and allow manual entry. Never silently pretend that OCR has succeeded.
+
+### Required workflow
+
+1. User opens Upload Purchase Invoice.
+2. User uploads an image or PDF.
+3. Validate file type, file size, and page count.
+4. Preview the original document.
+5. Send the file securely to the configured OCR/vision service.
+6. Extract supplier details, invoice details, medicine rows, taxes, and totals.
+7. Return structured data with confidence indicators where available.
+8. Display every extracted medicine in an editable review table.
+9. Flag uncertain medicine names, batch numbers, expiry dates, and tax values.
+10. Match each medicine against the existing medicine master using normalized names, strength, dosage form, and pack size.
+11. Let the user choose an existing medicine or create a new medicine.
+12. Detect duplicate supplier invoice numbers and possible duplicate imports.
+13. Recalculate totals and compare them with the supplier invoice.
+14. Highlight discrepancies.
+15. Ask the user to confirm the purchase.
+16. Save the purchase, purchase items, batch records, stock movements, supplier, and tax breakdown in a database transaction.
+17. Display a success summary and the updated inventory.
+
+### Important extraction rules
+
+- Never silently discard a medicine row.
+- Preserve the original OCR text for audit purposes.
+- Do not fabricate unreadable batch numbers, expiry dates, or tax rates.
+- Represent missing values as blank or unknown and require review where necessary.
+- Do not assume a two-digit expiry year or ambiguous date is unambiguous; flag it for review.
+- Distinguish purchase rate from MRP.
+- Distinguish free quantity from purchased quantity.
+- Ensure that free quantities do not incorrectly increase the purchase invoice's taxable amount.
+- Never add inventory before the user confirms the extracted invoice.
+- Prevent a confirmed invoice from being imported twice.
+- Keep a record of the original document or a securely stored document reference.
+
+### Review table
+
+Create an editable grid with columns:
+
+Medicine | Packing | HSN | Manufacturer | Batch | Expiry | Qty | Free | MRP | Purchase Rate | Discount % | GST % | Amount | Match Status
+
+Include Add Row, Delete Row, Edit, Match Medicine, Create Medicine, Re-extract, Save Draft, and Confirm Purchase.
+
+The entire process must work comfortably on mobile, using a responsive table or editable row cards.
+
+## 8. Purchase management
+
+Create a Purchase module inspired by the reference software.
+
+Fields:
+
+- Purchase invoice number.
+- Supplier.
+- Supplier invoice number and date.
+- Internal entry date.
+- Payment terms.
+- Medicine rows and batch information.
+- Quantities and free quantities.
+- Purchase rate and MRP.
+- Discounts.
+- Taxable amount.
+- CGST, SGST, or IGST.
+- Additional charges.
+- Round-off.
+- Grand total.
+- Payment status.
+
+Support:
+
+- Manual purchase entry.
+- Purchase invoice upload.
+- Purchase history.
+- Supplier-wise purchases.
+- Purchase returns.
+- Purchase cancellation through controlled reversal entries.
+- Supplier outstanding balances.
+
+When a purchase is confirmed, update the relevant batch quantities atomically.
+
+Do not silently overwrite existing batch information when a new purchase arrives.
+
+## 9. Sales billing and invoice creation
+
+Create a fast, professional billing screen inspired by the supplied screenshots but redesigned for modern usability.
+
+### Header
+
+- Business logo and name.
+- Invoice series.
+- Automatically generated invoice number.
+- Invoice date and time.
+- Customer selection.
+- Customer GSTIN, if applicable.
+- Customer address and phone.
+- Payment mode.
+- Prescription reference where appropriate.
+
+### Medicine entry
+
+Support barcode scanning through keyboard-wedge scanners and manual search.
+
+For every line item, show:
+
+- Medicine.
+- Batch.
+- Expiry.
+- Available quantity.
+- Quantity sold.
+- Free quantity, where supported.
+- MRP.
+- Selling rate.
+- Discount.
+- HSN.
+- GST rate.
+- Taxable amount.
+- CGST/SGST or IGST.
+- Final line total.
+
+When a medicine is selected:
+
+- Load eligible batches from the database.
+- Show batch expiry and available stock.
+- Suggest FEFO batch selection.
+- Fill the configured selling rate and applicable tax category.
+- Warn if the selling rate exceeds MRP.
+- Block sales from expired batches.
+- Prevent invalid quantities.
+- Allow authorized overrides only with an audit record.
+
+### Customer functions
+
+- Walk-in customer or cash sale.
+- Create a customer.
+- Search existing customers.
+- Store billing address, phone, GSTIN, and state.
+- View customer purchase history.
+- Record payments and outstanding balances.
+- Support cash, UPI, card, and credit payment modes.
+
+### Billing controls
+
+- Add/remove rows.
+- Keyboard-friendly data entry.
+- Recalculate totals immediately.
+- Apply line-level and bill-level discounts.
+- Show subtotal, taxable amount, tax breakup, discounts, round-off, and grand total.
+- Save as draft.
+- Finalize bill.
+- Print.
+- Download PDF.
+- Share a generated invoice through an appropriate supported mechanism.
+- Record full or partial payments.
+- Support sales returns with stock and payment adjustments.
+
+A finalized invoice must not be silently edited. Use a controlled cancellation, credit note, or reversal workflow that preserves the original invoice and its audit history.
+
+## 10. Tax and financial calculations
+
+Implement a centralized, thoroughly tested calculation engine.
+
+For each medicine row:
+
+- Calculate gross line amount using quantity and selling rate.
+- Apply line-level discounts in the configured order.
+- Calculate taxable value.
+- Calculate applicable GST according to the medicine's configured tax classification and transaction details.
+- Split GST into CGST and SGST for applicable intra-state transactions.
+- Apply IGST for applicable inter-state transactions.
+- Apply bill-level discounts proportionally or using a documented, consistent allocation rule.
+- Calculate permitted additional charges.
+- Calculate round-off.
+- Calculate final invoice total.
+
+For purchases, keep purchase cost calculations separate from sales calculations.
+
+Requirements:
+
+- Use decimal arithmetic for financial calculations, not ordinary floating-point arithmetic for authoritative totals.
+- Store monetary values using appropriate PostgreSQL Decimal/Numeric columns.
+- Use consistent rounding to two decimal places where appropriate.
+- Ensure all line totals reconcile with the invoice summary.
+- Compare OCR-extracted supplier totals against recalculated totals.
+- Make discrepancies visible rather than silently forcing totals to match.
+- Do not hardcode a single GST rate for all medicines.
+- Do not assume that every medicine uses the same HSN or tax category.
+- Do not automatically apply a tax treatment without a configured or verified rate.
+- Clearly distinguish taxable, exempt, and other configured categories.
+- Keep a calculation breakdown for audit and debugging.
+
+Implement unit tests covering discounts, free quantities, CGST/SGST, IGST, rounding, returns, and edge cases.
+
+## 11. Invoice PDF, printing, and QR code
+
+Generate a professional, print-ready A4 invoice inspired by the uploaded physical invoice.
+
+The invoice should contain:
+
+- Business name and logo.
+- Owner and contact information.
+- Full address.
+- GSTIN and drug licence numbers.
+- TAX INVOICE heading.
+- Original/Duplicate/Triplicate copy designation where configured.
+- Invoice number and date.
+- Customer name, address, state, and GSTIN where applicable.
+- Itemized medicine table.
+- HSN, batch, expiry, quantity, MRP, rate, discount, GST, and line amount.
+- Tax summary.
+- Subtotal.
+- Discounts.
+- CGST/SGST/IGST breakdown.
+- Additional charges.
+- Round-off.
+- Grand total in numbers.
+- Grand total in words.
+- Payment information.
+- Terms and conditions.
+- Authorized signature area.
+
+Add a QR code with a clearly defined purpose, such as verifying an invoice within the application or opening a secure invoice-view page. Include only the minimum information needed and never embed secrets or private customer details unnecessarily.
+
+Make QR verification identifiers unpredictable and validate them server-side. Do not claim that a generated QR code is a government or GST e-invoice IRN/QR code.
+
+Provide:
+
+- Download PDF.
+- Print invoice.
+- Reprint historical invoice.
+- Optional thermal receipt layout for supported paper sizes.
+
+The generated invoice must use saved business settings and actual invoice data, not example values.
+
+## 12. Customers, suppliers, and ledgers
+
+Build separate management screens for:
+
+### Customers
+- Contact details.
+- Billing details.
+- GSTIN.
+- Opening balance.
+- Sales history.
+- Payments received.
+- Outstanding balance.
+
+### Suppliers
+- Company name.
+- Contact person.
+- Address.
+- Phone and email.
+- GSTIN.
+- Drug licence details, if applicable.
+- Purchase history.
+- Payments made.
+- Outstanding balance.
+
+### Ledgers
+- Date.
+- Voucher type.
+- Voucher number.
+- Debit.
+- Credit.
+- Running balance.
+- Payment reference.
+- Remarks.
+
+Clearly distinguish customer receivables from supplier payables. Derive balances from recorded transactions, with opening balances explicitly configured and auditable.
+
+## 13. Stock alerts and expiry management
+
+Build dedicated pages for:
+
+- Low stock.
+- Out of stock.
+- Expiring within 30 days.
+- Expiring within 60 days.
+- Expiring within 90 days.
+- Expired batches.
+- Dead stock.
+- Fast-moving medicines.
+- Slow-moving medicines.
+
+Allow configurable alert thresholds.
+
+Do not allow expired stock to be sold. Support expiry write-offs, returns to suppliers where applicable, and inventory adjustments with mandatory reasons.
+
+## 14. Reports and analytics
+
+Implement database-driven reports with filters for date ranges, medicine, batch, customer, supplier, and payment mode.
+
+Required reports:
+
+- Daily sales register.
+- Sales by period.
+- Purchase register.
+- GST summary.
+- HSN-wise sales summary.
+- Taxable and non-taxable sales.
+- Profit estimate by medicine.
+- Batch-wise stock report.
+- Stock valuation.
+- Stock movement.
+- Expiry report.
+- Customer outstanding.
+- Supplier outstanding.
+- Cash/UPI/card/credit collections.
+- Cancelled bills and returns.
+
+Provide CSV export and printable reports.
+
+Only label a report as a statutory filing report if it has been implemented and validated for that purpose. Ordinary application summaries must not be presented as official GST filing submissions.
+
+## 15. Database design using Neon PostgreSQL
+
+Create a proper relational schema using Prisma.
+
+Include appropriate tables/models for:
+
+- User.
+- Session or authentication-related records.
+- BusinessProfile.
+- Medicine.
+- MedicineBatch.
+- Supplier.
+- Customer.
+- Purchase.
+- PurchaseItem.
+- Sale.
+- SaleItem.
+- Payment.
+- CustomerLedgerEntry.
+- SupplierLedgerEntry.
+- StockMovement.
+- InvoiceDocument.
+- InvoiceExtraction.
+- InvoiceVerificationToken.
+- AuditLog.
+- ApplicationSettings.
+
+Add foreign keys, unique constraints, indexes, timestamps, and Decimal/Numeric columns.
+
+Important database rules:
+
+- Use a unique invoice number per business and invoice series.
+- Detect duplicate supplier invoices.
+- Use database transactions for purchases, finalized sales, returns, and payments.
+- Prevent double stock deductions.
+- Protect concurrent invoice number generation.
+- Keep finalized financial records auditable.
+- Use migrations instead of modifying the production database schema manually.
+- Configure Neon-compatible pooled connections for runtime and an appropriate direct connection for migrations where required.
+- Do not commit generated secrets or database credentials to Git.
+
+If the application is initially designed for one store, structure the data model so that multi-store support can be introduced safely without exposing records across businesses.
+
+## 16. Neon database and .env configuration
+
+Create a complete `.env.example` containing all required environment variables.
+
+At minimum, include:
+
+DATABASE_URL=
+DIRECT_URL=
+AUTH_SECRET=
+AUTH_URL=
+INITIAL_ADMIN_NAME=
+INITIAL_ADMIN_EMAIL=
+INITIAL_ADMIN_PASSWORD=
+OCR_PROVIDER=
+OCR_API_KEY=
+OCR_MODEL=
+APP_URL=
+
+Add any additional variables required by the selected authentication or OCR provider.
+
+Create:
+
+- `prisma/schema.prisma`
+- Database migration files.
+- An idempotent seed script.
+- A secure initial administrator setup process.
+- A `.gitignore` that excludes `.env`, `.env.local`, `.env.production`, and secret files.
+- Clear setup documentation.
+
+Never put actual production secrets in `.env.example`.
+
+Document how to:
+
+1. Create a Neon project.
+2. Copy the pooled database URL into `DATABASE_URL`.
+3. Configure `DIRECT_URL` for migrations if required by the chosen Prisma/Neon setup.
+4. Add environment variables to the local environment.
+5. Generate the Prisma client.
+6. Apply migrations.
+7. Seed the administrator safely.
+8. Run the application locally.
+9. Connect GitHub to Vercel.
+10. Configure Vercel environment variables for Preview and Production.
+11. Deploy and verify the production application.
+
+Use the current supported Prisma and Neon configuration pattern. Do not blindly copy deprecated connection-adapter or datasource examples.
+
+## 17. Responsive UI/UX design
+
+Do not reproduce the old desktop-only interface literally.
+
+Build a modern, attractive medical billing SaaS dashboard.
+
+### Visual direction
+
+- Clean white or soft-neutral background.
+- Medical teal/blue as the primary accent.
+- Green for successful transactions.
+- Amber for expiry warnings.
+- Red for critical stock or validation errors.
+- Clear typography.
+- Consistent spacing.
+- Accessible contrast.
+- Minimal but useful animation.
+- Responsive cards and tables.
+- Professional empty states and loading skeletons.
+
+### Desktop
+
+Use a collapsible sidebar with:
+
+Dashboard, Billing, Sales, Purchases, Upload Invoice, Inventory, Medicines, Customers, Suppliers, Ledgers, Reports, and Settings.
+
+Keep frequently used billing actions easy to access.
+
+### Mobile
+
+- Use a compact navigation drawer or bottom navigation.
+- Replace wide tables with responsive card layouts where necessary.
+- Make search, quantity entry, and payment controls easy to tap.
+- Prevent horizontal overflow.
+- Keep primary actions visible.
+- Optimize the billing process for one-handed use where practical.
+- Ensure the upload, OCR review, and PDF preview workflows work on phones.
+
+### Keyboard usability
+
+Support practical shortcuts for new bill, medicine search, adding a row, saving a draft, and opening the payment dialog.
+
+Do not intercept shortcuts while the user is typing in a text field unless the shortcut is specifically intended for that field.
+
+Provide clear focus states and accessible labels.
+
+## 18. File structure and code quality
+
+Use a clean, modular architecture.
+
+Suggested structure:
+
+- `app/` for routes and pages.
+- `app/api/` for server-side endpoints where appropriate.
+- `components/` for reusable UI.
+- `components/billing/` for billing components.
+- `components/inventory/` for inventory components.
+- `components/invoice-upload/` for OCR upload and review.
+- `lib/auth/` for authentication helpers.
+- `lib/db/` for database utilities.
+- `lib/invoices/` for invoice generation.
+- `lib/tax/` for tax calculations.
+- `lib/ocr/` for OCR provider integration.
+- `lib/validation/` for schemas.
+- `prisma/` for database schema, migrations, and seed.
+- `tests/` for unit and integration tests.
+
+Use reusable components, server-side validation, typed API responses, centralized error handling, and structured logging.
+
+Do not create one giant component or place all business logic inside frontend pages.
+
+## 19. Security, privacy, and reliability
+
+Implement:
+
+- Server-side authorization for every protected action.
+- Password hashing.
+- Secure session handling.
+- Login rate limiting.
+- Zod validation for all important inputs.
+- File upload size and type limits.
+- Safe handling of uploaded PDFs and images.
+- Protection against SQL injection and XSS.
+- CSRF protection where applicable to the chosen authentication architecture.
+- Audit logs for important financial operations.
+- No secrets in browser bundles or application logs.
+- No public access to uploaded supplier documents.
+- Controlled invoice cancellation and stock reversal.
+- Database transaction handling.
+- Graceful error states and retry mechanisms.
+- Automated tests for critical billing and stock workflows.
+
+Treat OCR output as untrusted input. Validate and normalize it before writing to the database.
+
+Do not make medical diagnosis or treatment recommendations. This is a billing and inventory application, not a clinical decision-support system.
+
+## 20. Required automated tests
+
+Write tests for at least the following scenarios:
+
+1. Login with valid and invalid credentials.
+2. Unauthorized access to protected routes.
+3. Creating and editing a medicine.
+4. Adding a purchase with multiple batches.
+5. Uploading and reviewing a supplier invoice.
+6. Detecting a duplicate supplier invoice.
+7. Correcting uncertain OCR values.
+8. Confirming a purchase and updating stock.
+9. Creating a sale and deducting stock.
+10. Preventing sales from expired batches.
+11. Preventing negative stock.
+12. Calculating GST correctly for intra-state and inter-state transactions.
+13. Applying discounts and round-off.
+14. Recording partial and full payments.
+15. Processing returns and cancellation reversals.
+16. Generating and verifying a QR code.
+17. Generating a valid PDF invoice.
+18. Changing account credentials.
+19. Enforcing business-level data isolation.
+20. Preventing duplicate stock deduction during concurrent requests.
+
+Include representative test data clearly labeled as demo data.
+
+## 21. Development phases
+
+Build the application in the following sequence. Do not attempt to generate everything as one unstructured component.
+
+### Phase 1 — Foundation
+Set up Next.js, TypeScript, UI design system, routing, environment variables, Prisma, Neon connection, migrations, and initial administrator authentication.
+
+Deliver a working login page and protected dashboard.
+
+### Phase 2 — Business settings and master data
+Implement the business profile, medicines, batches, customers, and suppliers.
+
+Deliver fully functional create, read, update, and search operations.
+
+### Phase 3 — Purchase and inventory
+Implement manual purchase entry, batch-wise inventory, stock movements, stock validation, and purchase history.
+
+### Phase 4 — Invoice upload and OCR
+Implement secure uploads, OCR/vision integration, structured extraction, editable review, medicine matching, duplicate detection, discrepancy warnings, and transactional purchase confirmation.
+
+### Phase 5 — Sales billing
+Implement fast billing, batch selection, FEFO, tax calculation, customer management, payments, and finalized invoice handling.
+
+### Phase 6 — PDF and QR verification
+Implement professional invoices, download/print, grand total in words, QR generation, and secure verification.
+
+### Phase 7 — Reports and financial tracking
+Implement ledgers, GST summaries, stock reports, expiry alerts, sales reports, and exports.
+
+### Phase 8 — Security and testing
+Complete validation, authorization, audit logs, concurrency safeguards, unit tests, and integration tests.
+
+### Phase 9 — Deployment
+Prepare the production build, Neon migrations, Vercel configuration, environment variable documentation, and deployment instructions.
+
+## 22. Definition of done
+
+The project is complete only when:
+
+- A user can log in securely.
+- Account credentials can be changed.
+- Data persists in Neon PostgreSQL across sessions and deployments.
+- Medicines and batches can be managed.
+- A supplier invoice can be uploaded and its contents extracted by a real configured OCR/vision provider.
+- Extracted rows can be reviewed, corrected, and saved as a purchase.
+- Stock updates correctly after confirmed purchases.
+- Customer bills calculate taxes and totals correctly.
+- Finalized sales deduct the correct batches.
+- Expired medicines cannot be sold.
+- A professional invoice PDF can be downloaded and printed.
+- The QR code serves its documented verification purpose.
+- Reports use real database data.
+- The UI works on desktop and mobile.
+- Critical tests pass.
+- The application builds successfully for Vercel.
+- Setup, environment variables, migrations, seeding, and deployment are documented.
+
+## 23. Instructions for working in Google AI Studio
+
+First inspect the available project environment and generate a short implementation plan and file structure.
+
+Then implement Phase 1 completely, including real database integration and authentication.
+
+Proceed phase by phase. After each phase:
+
+1. List the files created or modified.
+2. Explain required environment variables.
+3. Verify TypeScript types and imports.
+4. Run available tests and build checks.
+5. Fix errors before continuing.
+6. Identify any functionality that still requires external API credentials.
+7. Keep existing working features intact.
+
+Do not replace real functionality with placeholder buttons, mock database data, simulated OCR, or hardcoded totals.
+
+If the output limit is reached, stop at a clearly documented checkpoint and continue from that checkpoint in the next response.
+
+Prioritize data correctness, secure financial transactions, batch-level inventory integrity, usability, and deployability over decorative effects.
+
+Begin with Phase 1 now.

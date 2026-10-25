@@ -1,0 +1,346 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                 String   @id @default(uuid())
+  name               String
+  email              String   @unique
+  passwordHash       String
+  role               String   @default("ADMIN") // ADMIN, PHARMACIST, BILLER
+  mustChangePassword Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  auditLogs          AuditLog[]
+}
+
+model BusinessProfile {
+  id                 String   @id @default(uuid())
+  storeName          String   @default("APEX MEDI SALES")
+  ownerName          String   @default("Apex Administrator")
+  address            String   @default("DOOR NO.-VI/143, ALVEKODI SHIRALI ROAD, BHATKAL, SHIRALI")
+  city               String   @default("UTTARA KANNADA")
+  state              String   @default("Karnataka")
+  stateCode          String   @default("29")
+  pincode            String   @default("581354")
+  phone              String   @default("9113917343")
+  email              String   @default("apexmedisales@gmail.com")
+  gstin              String   @default("29BZWWPN5791F1ZE")
+  dlNo1              String   @default("KA-KW1-299954")
+  dlNo2              String   @default("KA-KW1-299955 & KA-KW1-299956")
+  foodLic            String?
+  invoicePrefix      String   @default("AM")
+  invoiceFooter      String   @default("Thank you for your business. For any queries, please contact Apex Medi Sales.")
+  termsConditions    String   @default("1. Goods once sold will not be taken back or exchanged.\n2. Payment terms as agreed; overdue accounts subject to interest.\n3. Not responsible for transit breakage or leakage.\n4. Subject to local jurisdiction only.")
+  bankName           String?  @default("State Bank of India")
+  accountNo          String?  @default("38492019482")
+  ifscCode           String?  @default("SBIN0004128")
+  upiId              String?  @default("apexmedisales@upi")
+  roundOffPreference Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model Medicine {
+  id                     String          @id @default(uuid())
+  name                   String
+  genericName            String?
+  manufacturer           String?
+  dosageForm             String          @default("SYRUP") // TABLET, CAPSULE, SYRUP, DROPS, INJECTION, OINTMENT
+  strength               String?
+  packSize               String          @default("1")
+  uom                    String          @default("ML")
+  hsnCode                String          @default("30049000")
+  barcode                String?         @unique
+  isPrescriptionRequired Boolean         @default(false)
+  minStockAlert          Int             @default(20)
+  taxRate                Decimal         @default(5.0) @db.Decimal(5, 2)
+  isActive               Boolean         @default(true)
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
+
+  batches                MedicineBatch[]
+  purchaseItems          PurchaseItem[]
+  saleItems              SaleItem[]
+  stockMovements         StockMovement[]
+}
+
+model MedicineBatch {
+  id                 String          @id @default(uuid())
+  medicineId         String
+  batchNumber        String
+  mfgDate            DateTime?
+  expiryDate         DateTime
+  purchaseRate       Decimal         @db.Decimal(10, 2)
+  mrp                Decimal         @db.Decimal(10, 2)
+  sellingRate        Decimal         @db.Decimal(10, 2)
+  initialQty         Int             @default(0)
+  currentQty         Int             @default(0)
+  freeQty            Int             @default(0)
+  supplierId         String?
+  purchaseInvoiceRef String?
+  gstRate            Decimal         @default(5.0) @db.Decimal(5, 2)
+  discount           Decimal         @default(0.0) @db.Decimal(5, 2)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  medicine           Medicine        @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  supplier           Supplier?       @relation(fields: [supplierId], references: [id])
+  saleItems          SaleItem[]
+  stockMovements     StockMovement[]
+
+  @@unique([medicineId, batchNumber])
+}
+
+model Supplier {
+  id             String                @id @default(uuid())
+  name           String
+  contactPerson  String?
+  address        String?
+  city           String?
+  state          String                @default("Karnataka")
+  stateCode      String                @default("29")
+  phone          String?
+  email          String?
+  gstin          String?
+  dlNo           String?
+  openingBalance Decimal               @default(0.0) @db.Decimal(12, 2)
+  currentBalance Decimal               @default(0.0) @db.Decimal(12, 2)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  purchases      Purchase[]
+  batches        MedicineBatch[]
+  ledgerEntries  SupplierLedgerEntry[]
+  payments       Payment[]
+}
+
+model Customer {
+  id             String                @id @default(uuid())
+  name           String
+  contactPerson  String?
+  address        String?
+  city           String?
+  state          String                @default("Karnataka")
+  stateCode      String                @default("29")
+  phone          String?
+  email          String?
+  gstin          String?
+  dlNo1          String?
+  dlNo2          String?
+  openingBalance Decimal               @default(0.0) @db.Decimal(12, 2)
+  currentBalance Decimal               @default(0.0) @db.Decimal(12, 2)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  sales          Sale[]
+  ledgerEntries  CustomerLedgerEntry[]
+  payments       Payment[]
+}
+
+model Purchase {
+  id                    String         @id @default(uuid())
+  invoiceNumber         String         @unique
+  supplierInvoiceNumber String
+  supplierId            String
+  invoiceDate           DateTime
+  entryDate             DateTime       @default(now())
+  paymentTerms          String         @default("Credit") // Credit, Cash, UPI
+  paymentStatus         String         @default("Pending") // Paid, Pending, Partial
+  taxableAmount         Decimal        @db.Decimal(12, 2)
+  cgstAmount            Decimal        @default(0.0) @db.Decimal(10, 2)
+  sgstAmount            Decimal        @default(0.0) @db.Decimal(10, 2)
+  igstAmount            Decimal        @default(0.0) @db.Decimal(10, 2)
+  discountAmount        Decimal        @default(0.0) @db.Decimal(10, 2)
+  roundOff              Decimal        @default(0.0) @db.Decimal(6, 2)
+  grandTotal            Decimal        @db.Decimal(12, 2)
+  notes                 String?
+  documentPath          String?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+
+  supplier              Supplier       @relation(fields: [supplierId], references: [id])
+  items                 PurchaseItem[]
+  payments              Payment[]
+}
+
+model PurchaseItem {
+  id              String   @id @default(uuid())
+  purchaseId      String
+  medicineId      String
+  batchNumber     String
+  expiryDate      DateTime
+  packing         String?
+  hsnCode         String?
+  quantity        Int
+  freeQty         Int      @default(0)
+  mrp             Decimal  @db.Decimal(10, 2)
+  purchaseRate    Decimal  @db.Decimal(10, 2)
+  discountPercent Decimal  @default(0.0) @db.Decimal(5, 2)
+  gstRate         Decimal  @default(5.0) @db.Decimal(5, 2)
+  lineAmount      Decimal  @db.Decimal(12, 2)
+  createdAt       DateTime @default(now())
+
+  purchase        Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  medicine        Medicine @relation(fields: [medicineId], references: [id])
+}
+
+model Sale {
+  id                 String      @id @default(uuid())
+  invoiceNumber      String      @unique
+  invoiceSeries      String      @default("MAIN")
+  customerId         String?
+  customerName       String?
+  invoiceDate        DateTime    @default(now())
+  paymentMode        String      @default("Cash") // Cash, UPI, Card, Credit
+  paymentStatus      String      @default("Paid") // Paid, Partial, Unpaid
+  totalItems         Int         @default(0)
+  taxableAmount      Decimal     @db.Decimal(12, 2)
+  cgstAmount         Decimal     @default(0.0) @db.Decimal(10, 2)
+  sgstAmount         Decimal     @default(0.0) @db.Decimal(10, 2)
+  igstAmount         Decimal     @default(0.0) @db.Decimal(10, 2)
+  discountAmount     Decimal     @default(0.0) @db.Decimal(10, 2)
+  additionalCharges  Decimal     @default(0.0) @db.Decimal(10, 2)
+  roundOff           Decimal     @default(0.0) @db.Decimal(6, 2)
+  grandTotal         Decimal     @db.Decimal(12, 2)
+  paidAmount         Decimal     @default(0.0) @db.Decimal(12, 2)
+  balanceAmount      Decimal     @default(0.0) @db.Decimal(12, 2)
+  verificationToken  String      @unique @default(uuid())
+  isCancelled        Boolean     @default(false)
+  cancellationReason String?
+  cancelledAt        DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  customer           Customer?   @relation(fields: [customerId], references: [id])
+  items              SaleItem[]
+  payments           Payment[]
+}
+
+model SaleItem {
+  id              String        @id @default(uuid())
+  saleId          String
+  medicineId      String
+  batchId         String
+  batchNumber     String
+  expiryDate      DateTime
+  packing         String?
+  hsnCode         String?
+  quantity        Int
+  freeQty         Int           @default(0)
+  mrp             Decimal       @db.Decimal(10, 2)
+  sellingRate     Decimal       @db.Decimal(10, 2)
+  discountPercent Decimal       @default(0.0) @db.Decimal(5, 2)
+  gstRate         Decimal       @default(5.0) @db.Decimal(5, 2)
+  taxableAmount   Decimal       @db.Decimal(12, 2)
+  cgstAmount      Decimal       @default(0.0) @db.Decimal(10, 2)
+  sgstAmount      Decimal       @default(0.0) @db.Decimal(10, 2)
+  igstAmount      Decimal       @default(0.0) @db.Decimal(10, 2)
+  lineTotal       Decimal       @db.Decimal(12, 2)
+  createdAt       DateTime      @default(now())
+
+  sale            Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  medicine        Medicine      @relation(fields: [medicineId], references: [id])
+  batch           MedicineBatch @relation(fields: [batchId], references: [id])
+}
+
+model Payment {
+  id              String    @id @default(uuid())
+  voucherNumber   String    @unique
+  voucherType     String    // RECEIPT (from customer), PAYMENT (to supplier)
+  customerId      String?
+  supplierId      String?
+  saleId          String?
+  purchaseId      String?
+  amount          Decimal   @db.Decimal(12, 2)
+  paymentMode     String    @default("Cash") // Cash, UPI, Bank Transfer, Cheque
+  referenceNumber String?
+  notes           String?
+  paymentDate     DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  supplier        Supplier? @relation(fields: [supplierId], references: [id])
+  sale            Sale?     @relation(fields: [saleId], references: [id])
+  purchase        Purchase? @relation(fields: [purchaseId], references: [id])
+}
+
+model CustomerLedgerEntry {
+  id            String   @id @default(uuid())
+  customerId    String
+  date          DateTime @default(now())
+  voucherType   String   // SALE, RECEIPT, RETURN, OPENING
+  voucherNumber String
+  debit         Decimal  @default(0.0) @db.Decimal(12, 2)
+  credit        Decimal  @default(0.0) @db.Decimal(12, 2)
+  balance       Decimal  @db.Decimal(12, 2)
+  reference     String?
+  remarks       String?
+  createdAt     DateTime @default(now())
+
+  customer      Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+model SupplierLedgerEntry {
+  id            String   @id @default(uuid())
+  supplierId    String
+  date          DateTime @default(now())
+  voucherType   String   // PURCHASE, PAYMENT, RETURN, OPENING
+  voucherNumber String
+  debit         Decimal  @default(0.0) @db.Decimal(12, 2)
+  credit        Decimal  @default(0.0) @db.Decimal(12, 2)
+  balance       Decimal  @db.Decimal(12, 2)
+  reference     String?
+  remarks       String?
+  createdAt     DateTime @default(now())
+
+  supplier      Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+}
+
+model StockMovement {
+  id            String        @id @default(uuid())
+  medicineId    String
+  batchId       String
+  batchNumber   String
+  type          String        // PURCHASE, SALE, SALE_RETURN, PURCHASE_RETURN, ADJUSTMENT, EXPIRY_WRITE_OFF
+  quantity      Int           // positive or negative
+  previousQty   Int
+  newQty        Int
+  referenceType String?       // Sale, Purchase, ManualAdjustment
+  referenceId   String?
+  reason        String?
+  createdAt     DateTime      @default(now())
+
+  medicine      Medicine      @relation(fields: [medicineId], references: [id], onDelete: Cascade)
+  batch         MedicineBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+}
+
+model InvoiceDocument {
+  id            String   @id @default(uuid())
+  fileName      String
+  fileType      String
+  fileSize      Int
+  filePath      String?
+  ocrStatus     String   @default("PENDING") // PENDING, EXTRACTED, CONFIRMED, FAILED
+  extractedData String?  @db.Text
+  createdAt     DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  action     String   // LOGIN, LOGOUT, CREATE_SALE, CANCEL_SALE, ADD_PURCHASE, ADJUST_STOCK, UPDATE_PROFILE
+  entityType String?
+  entityId   String?
+  details    String?  @db.Text
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user       User?    @relation(fields: [userId], references: [id])
+}
