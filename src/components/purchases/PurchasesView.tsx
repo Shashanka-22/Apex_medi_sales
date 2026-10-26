@@ -41,10 +41,10 @@ export const PurchasesView: React.FC<PurchasesViewProps> = ({ onNavigateToUpload
 
         <button
           onClick={onNavigateToUpload}
-          className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+          className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs rounded-xl shadow-xs transition flex items-center gap-2 cursor-pointer"
         >
-          <Plus className="w-4 h-4" />
-          Upload New Purchase (OCR)
+          <FileText className="w-4 h-4 text-teal-200" />
+          📄 Upload Purchase Bill
         </button>
       </div>
 

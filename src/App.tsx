@@ -144,7 +144,7 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'billing', label: 'Billing POS (F2)', icon: ShoppingCart, highlight: true },
     { id: 'sales', label: 'Sales Invoices (F4)', icon: FileText },
-    { id: 'upload-invoice', label: 'Upload Invoice OCR (F3)', icon: Sparkles, badge: 'AI Vision' },
+    { id: 'upload-invoice', label: 'AI Bill Import (F3)', icon: Sparkles, badge: 'Vision OCR' },
     { id: 'purchases', label: 'Purchases Register', icon: Package },
     { id: 'inventory', label: 'Medicines & Batches', icon: Package },
     { id: 'alerts', label: 'Stock & Expiry Alerts', icon: AlertTriangle },
@@ -324,10 +324,9 @@ export default function App() {
 
           {activeTab === 'upload-invoice' && (
             <UploadInvoiceView
-              onPurchaseConfirmed={() => {
-                // Return to purchases or dashboard
-              }}
+              onPurchaseConfirmed={() => setActiveTab('purchases')}
               onNavigateToInventory={() => setActiveTab('inventory')}
+              onNavigateToPurchases={() => setActiveTab('purchases')}
             />
           )}
 
@@ -339,7 +338,9 @@ export default function App() {
             <PurchasesView onNavigateToUpload={() => setActiveTab('upload-invoice')} />
           )}
 
-          {activeTab === 'inventory' && <InventoryView />}
+          {activeTab === 'inventory' && (
+            <InventoryView onNavigateToUpload={() => setActiveTab('upload-invoice')} />
+          )}
 
           {activeTab === 'alerts' && <StockAlertsView />}
 

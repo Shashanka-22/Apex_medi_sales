@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { neonAdapter } from './neon.js';
+import { PurchaseImportRecord } from './ocr.js';
 
 export interface User {
   id: string;
@@ -300,6 +301,7 @@ export interface DatabaseState {
   supplierLedgers: SupplierLedgerEntry[];
   stockMovements: StockMovement[];
   auditLogs: AuditLog[];
+  purchaseImports?: PurchaseImportRecord[];
 }
 
 function getStoragePaths() {
@@ -1309,6 +1311,7 @@ class DatabaseEngine {
       supplierLedgers,
       stockMovements,
       auditLogs,
+      purchaseImports: [],
     };
   }
 
@@ -1391,6 +1394,28 @@ class DatabaseEngine {
 
   public getAuditLogs(): AuditLog[] {
     return this.getState().auditLogs;
+  }
+
+  public async getPurchaseImports(): Promise<PurchaseImportRecord[]> {
+    try {
+      const neonImports = await neonAdapter.getPurchaseImports();
+      if (neonImports && neonImports.length > 0) {
+        return neonImports;
+      }
+    } catch (e) {
+      // fallback
+    }
+    const state = this.getState();
+    return state.purchaseImports || [];
+  }
+
+  public async recordPurchaseImport(imp: PurchaseImportRecord): Promise<PurchaseImportRecord> {
+    const state = this.getState();
+    if (!state.purchaseImports) state.purchaseImports = [];
+    state.purchaseImports.unshift(imp);
+    this.persist();
+    await neonAdapter.persistPurchaseImport(imp);
+    return imp;
   }
 
   // --- Write Operations with Persistence ---
@@ -1509,7 +1534,11 @@ class DatabaseEngine {
     userName?: string;
   }): Promise<{ batch: MedicineBatch; movement: StockMovement }> {
     const state = this.getState();
-    const batch = state.batches.find((b) => b.id === params.batchId);
+    let batch = state.batches.find((b) => b.id === params.batchId);
+    if (!batch && neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+      batch = this.getState().batches.find((b) => b.id === params.batchId);
+    }
     if (!batch) throw new Error('Batch not found');
     const medicine = state.medicines.find((m) => m.id === batch.medicineId);
 

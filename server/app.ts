@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import { db } from './db.js';
 import { neonAdapter } from './neon.js';
-import { extractInvoiceWithGemini, getSampleInvoiceData } from './ocr.js';
+import { extractInvoiceWithGemini, getSampleInvoiceData, ExtractedMedicineRow } from './ocr.js';
 
 dotenv.config();
 
@@ -437,32 +437,364 @@ apiRouter.post('/purchases', authenticateToken, async (req: any, res: Response) 
   }
 });
 
+// Helper: Match extracted invoice lines with existing medicines & batches in DB
+function matchExtractedItemsWithInventory(items: ExtractedMedicineRow[]): ExtractedMedicineRow[] {
+  const medicines = db.getMedicines();
+  const batches = db.getBatches();
+
+  return items.map((item, index) => {
+    const rawName = (item.productName || '').trim();
+    const cleanName = rawName.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+
+    // Match medicine by name or partial name
+    const matchedMed = medicines.find((m) => {
+      const mClean = m.name.toLowerCase().replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim();
+      if (mClean === cleanName) return true;
+      if (cleanName.length > 4 && mClean.includes(cleanName)) return true;
+      if (mClean.length > 4 && cleanName.includes(mClean)) return true;
+      return false;
+    });
+
+    let matchType: 'MATCHED_EXISTING_BATCH' | 'MATCHED_NEW_BATCH' | 'NEW_MEDICINE' | 'UNCERTAIN' = 'NEW_MEDICINE';
+    let matchedBatchId: string | undefined = undefined;
+
+    if (matchedMed) {
+      const batchNoClean = (item.batchNumber || '').trim().toLowerCase();
+      const existingBatch = batches.find(
+        (b) => b.medicineId === matchedMed.id && b.batchNumber.trim().toLowerCase() === batchNoClean
+      );
+
+      if (existingBatch) {
+        matchType = 'MATCHED_EXISTING_BATCH';
+        matchedBatchId = existingBatch.id;
+      } else {
+        matchType = 'MATCHED_NEW_BATCH';
+      }
+    } else {
+      matchType = 'NEW_MEDICINE';
+    }
+
+    if (!item.batchNumber || !item.expiryDate || (item.uncertainFields && item.uncertainFields.length > 0)) {
+      if (matchType === 'NEW_MEDICINE' && (!item.batchNumber || !item.expiryDate)) {
+        matchType = 'UNCERTAIN';
+      }
+    }
+
+    return {
+      ...item,
+      serialNumber: item.serialNumber || index + 1,
+      matchedMedicineId: matchedMed?.id,
+      matchedMedicineName: matchedMed?.name,
+      matchedBatchId,
+      matchType,
+    };
+  });
+}
+
+// 1. Upload Invoice and Extract All Medicines with Vision AI
+apiRouter.post('/purchase-import/upload', authenticateToken, upload.single('invoiceFile'), async (req: any, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Please upload an invoice file (JPG, PNG, or PDF)' });
+    }
+
+    const mimeType = req.file.mimetype;
+    const fileBuffer = req.file.buffer;
+    const fileName = req.file.originalname;
+
+    const extracted = await extractInvoiceWithGemini(fileBuffer, mimeType, undefined, fileName);
+    const matchedItems = matchExtractedItemsWithInventory(extracted.items);
+
+    return res.json({
+      ...extracted,
+      items: matchedItems,
+      fileName,
+      fileSize: req.file.size,
+    });
+  } catch (err: any) {
+    const cleanError = typeof err?.message === 'string' && err.message.includes('{')
+      ? 'Invoice extraction could not complete with live vision. Please review or select one of the 1-click verified test bills.'
+      : err?.message || 'Invoice extraction failed.';
+    return res.status(500).json({
+      error: cleanError,
+    });
+  }
+});
+
+// Backward compatibility for /api/ocr/upload
 apiRouter.post('/ocr/upload', authenticateToken, upload.single('invoiceFile'), async (req: any, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'Please upload an image (JPG/PNG) or PDF invoice' });
     }
-
-    const mimeType = req.file.mimetype;
-    const fileBuffer = req.file.buffer;
-
-    const extracted = await extractInvoiceWithGemini(fileBuffer, mimeType);
-    return res.json(extracted);
+    const extracted = await extractInvoiceWithGemini(req.file.buffer, req.file.mimetype, undefined, req.file.originalname);
+    const matchedItems = matchExtractedItemsWithInventory(extracted.items);
+    return res.json({ ...extracted, items: matchedItems });
   } catch (err: any) {
-    console.error('OCR Extraction failed:', err.message);
-    return res.status(500).json({
-      error: err.message || 'OCR extraction failed. You can use reference samples or enter rows manually.',
-    });
+    return res.status(500).json({ error: 'OCR extraction failed.' });
   }
 });
 
-apiRouter.get('/ocr/samples/:id', (req: Request, res: Response) => {
-  const sampleId = req.params.id as 'kroyf_distributor' | 'apex_tax_invoice';
+// 2. List Preloaded Reference Test Invoices
+apiRouter.get('/purchase-import/samples', (_req: Request, res: Response) => {
+  return res.json([
+    {
+      id: 'kroyf_distributor',
+      title: 'KROYF LABCORP Distributor Bill',
+      itemsCount: 7,
+      category: 'Pediatric Syrups & Drops (5% IGST)',
+      supplierName: 'KROYF LABCORP',
+      invoiceNumber: 'OS001230',
+      invoiceDate: '2024-07-30',
+      grandTotal: 27575.00,
+      previewUrl: '/assets/aistudio/image_d925ed9a.png',
+      description: 'Authentic 7-item distributor invoice from reference document.',
+    },
+    {
+      id: 'apex_tax_invoice',
+      title: 'Apex Health Multi-Category Invoice',
+      itemsCount: 15,
+      category: 'Tablets, Capsules, Injections & Ointments (Mixed GST)',
+      supplierName: 'APEX HEALTH DISTRIBUTORS',
+      invoiceNumber: 'INV-2026-8812',
+      invoiceDate: '2026-08-15',
+      grandTotal: 77203.00,
+      previewUrl: '/assets/aistudio/image_0abcdbcd.png',
+      description: '15 diverse pharmaceutical items testing multi-category inventory ingestion.',
+    },
+    {
+      id: 'bharat_mega_stockist',
+      title: 'Bharat Pharma Mega Super-Stockist Bill',
+      itemsCount: 35,
+      category: '35 High-Volume Fast Moving Medicines (Full Bill)',
+      supplierName: 'BHARAT PHARMA SUPER-STOCKIST',
+      invoiceNumber: 'BP-GST-2026/90412',
+      invoiceDate: '2026-08-18',
+      grandTotal: 442568.00,
+      previewUrl: '/assets/aistudio/image_e8b6284a.png',
+      description: 'Large-scale 35+ medicine bulk invoice verifying complete bulk inventory performance.',
+    },
+  ]);
+});
+
+// 3. Load Sample Invoice by ID
+apiRouter.get('/purchase-import/samples/:id', (req: Request, res: Response) => {
+  const sampleId = req.params.id as 'kroyf_distributor' | 'apex_tax_invoice' | 'bharat_mega_stockist';
   try {
     const data = getSampleInvoiceData(sampleId);
-    return res.json(data);
+    const matchedItems = matchExtractedItemsWithInventory(data.items);
+    return res.json({
+      ...data,
+      items: matchedItems,
+    });
   } catch (err: any) {
     return res.status(404).json({ error: 'Sample not found' });
+  }
+});
+
+// Backward compatibility for /api/ocr/samples/:id
+apiRouter.get('/ocr/samples/:id', (req: Request, res: Response) => {
+  const sampleId = req.params.id as any;
+  try {
+    const data = getSampleInvoiceData(sampleId);
+    const matchedItems = matchExtractedItemsWithInventory(data.items);
+    return res.json({ ...data, items: matchedItems });
+  } catch (err: any) {
+    return res.status(404).json({ error: 'Sample not found' });
+  }
+});
+
+// 4. Re-calculate matching for edited rows
+apiRouter.post('/purchase-import/match', authenticateToken, (req: Request, res: Response) => {
+  try {
+    const items = req.body?.items || [];
+    const matched = matchExtractedItemsWithInventory(items);
+    return res.json({ items: matched });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// 5. Confirm and Bulk Add All Medicines to Inventory
+apiRouter.post('/purchase-import/confirm', authenticateToken, async (req: any, res: Response) => {
+  try {
+    const {
+      supplierName,
+      supplierGstin,
+      supplierId,
+      invoiceNumber,
+      invoiceDate,
+      taxType,
+      items,
+      summary,
+      fileName,
+      isPartialImport,
+      partialImportNotes,
+    } = req.body || {};
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'No medicine items provided for inventory import' });
+    }
+
+    if (!invoiceNumber || !invoiceNumber.trim()) {
+      return res.status(400).json({ error: 'Supplier invoice number is mandatory' });
+    }
+
+    // A. Verify or auto-create supplier
+    let finalSupplierId = supplierId;
+    const existingSuppliers = db.getSuppliers();
+    const matchedSup = existingSuppliers.find(
+      (s) =>
+        (supplierId && s.id === supplierId) ||
+        (supplierGstin && s.gstin && s.gstin.trim().toLowerCase() === supplierGstin.trim().toLowerCase()) ||
+        s.name.trim().toLowerCase() === (supplierName || '').trim().toLowerCase()
+    );
+
+    if (matchedSup) {
+      finalSupplierId = matchedSup.id;
+    } else {
+      const createdSup = await db.addSupplier({
+        name: supplierName || 'Imported Distributor',
+        gstin: supplierGstin || undefined,
+        state: taxType === 'IGST' ? 'Haryana' : 'Karnataka',
+        stateCode: taxType === 'IGST' ? '06' : '29',
+        openingBalance: 0,
+        currentBalance: 0,
+      });
+      finalSupplierId = createdSup.id;
+    }
+
+    // B. Ensure all medicines exist in database master (auto-create if new)
+    const existingMeds = db.getMedicines();
+    const preparedItems = [];
+    let totalStockAdded = 0;
+
+    for (const row of items) {
+      let medId = row.matchedMedicineId || row.medicineId;
+
+      if (!medId) {
+        // Search if already added in this loop or in DB
+        const found = existingMeds.find(
+          (m) => m.name.trim().toLowerCase() === (row.productName || '').trim().toLowerCase()
+        );
+
+        if (found) {
+          medId = found.id;
+        } else {
+          // Auto create medicine in master
+          const newMed = await db.addMedicine({
+            name: row.productName.trim() || 'New Medicine',
+            genericName: row.genericName || undefined,
+            manufacturer: row.manufacturer || supplierName,
+            dosageForm: row.packing?.toLowerCase().includes('syp')
+              ? 'SYRUP'
+              : row.packing?.toLowerCase().includes('cap')
+              ? 'CAPSULE'
+              : row.packing?.toLowerCase().includes('drop')
+              ? 'DROPS'
+              : row.packing?.toLowerCase().includes('gel') || row.packing?.toLowerCase().includes('oint')
+              ? 'OINTMENT'
+              : 'TABLET',
+            packSize: row.packing || '1',
+            uom: row.packing?.toLowerCase().includes('syp') || row.packing?.toLowerCase().includes('drop') ? 'BOTTLE' : 'STRIP',
+            hsnCode: row.hsnCode || '30049000',
+            isPrescriptionRequired: true,
+            minStockAlert: 20,
+            taxRate: Number(row.gstRate) || 5.0,
+            isActive: true,
+          });
+          medId = newMed.id;
+          existingMeds.push(newMed);
+        }
+      }
+
+      const qty = Number(row.quantity) || 1;
+      const free = Number(row.freeQty) || 0;
+      totalStockAdded += (qty + free);
+
+      preparedItems.push({
+        medicineId: medId,
+        medicineName: row.productName,
+        batchNumber: (row.batchNumber || `BAT${Math.floor(Math.random() * 90000)}`).trim().toUpperCase(),
+        expiryDate: row.expiryDate || '2028-12-31',
+        packing: row.packing || '1',
+        hsnCode: row.hsnCode || '30049000',
+        quantity: qty,
+        freeQty: free,
+        mrp: Number(row.mrp) || 0,
+        purchaseRate: Number(row.purchaseRate) || 0,
+        discountPercent: Number(row.discountPercent) || 0,
+        gstRate: Number(row.gstRate) || 5.0,
+        lineAmount: Number(row.amount) || (qty * Number(row.purchaseRate)),
+      });
+    }
+
+    // C. Atomically record purchase in Neon PostgreSQL + update batches and ledger
+    const purchasePayload = {
+      invoiceNumber: `P-${Date.now().toString().slice(-6)}`,
+      supplierInvoiceNumber: invoiceNumber.trim(),
+      supplierId: finalSupplierId,
+      supplierName: supplierName || 'Imported Distributor',
+      invoiceDate: invoiceDate ? new Date(invoiceDate).toISOString() : new Date().toISOString(),
+      entryDate: new Date().toISOString(),
+      paymentTerms: 'Credit',
+      paymentStatus: 'Pending' as const,
+      taxableAmount: Number(summary?.taxableAmount) || 0,
+      cgstAmount: Number(summary?.cgstAmount) || 0,
+      sgstAmount: Number(summary?.sgstAmount) || 0,
+      igstAmount: Number(summary?.igstAmount) || 0,
+      discountAmount: Number(summary?.discountAmount) || 0,
+      roundOff: Number(summary?.roundOff) || 0,
+      grandTotal: Number(summary?.grandTotal) || 0,
+      notes: isPartialImport
+        ? `Partial Import: ${items.length} items (${totalStockAdded} units) from ${supplierName} (Bill: ${invoiceNumber}) - ${partialImportNotes || 'Incomplete document inward'}`
+        : `Bulk AI Purchase Bill Import: ${items.length} items (${totalStockAdded} units) from ${supplierName} (Bill: ${invoiceNumber})`,
+      items: preparedItems,
+    };
+
+    const recordedPurchase = await db.recordPurchase(purchasePayload as any, req.user?.id, req.user?.name);
+
+    // D. Log import record for historical audit
+    const importRecord = {
+      id: `imp_${Date.now()}`,
+      supplierName: supplierName || 'Distributor',
+      supplierInvoiceNumber: invoiceNumber.trim(),
+      invoiceDate: invoiceDate || new Date().toISOString().split('T')[0],
+      fileName: fileName || 'uploaded_bill',
+      fileType: fileName?.endsWith('.pdf') ? 'application/pdf' : 'image/png',
+      totalItems: items.length,
+      importedItems: preparedItems.length,
+      grandTotal: Number(summary?.grandTotal) || 0,
+      taxType: taxType || 'IGST',
+      status: (isPartialImport ? 'PARTIAL' : 'CONFIRMED') as 'PARTIAL' | 'CONFIRMED',
+      purchaseId: recordedPurchase.id,
+      notes: partialImportNotes || (isPartialImport ? 'Partial invoice import' : 'Complete invoice import'),
+      createdAt: new Date().toISOString(),
+    };
+
+    await db.recordPurchaseImport(importRecord);
+
+    return res.status(201).json({
+      success: true,
+      message: `Successfully imported ${preparedItems.length} medicines into inventory! Stock updated.`,
+      purchase: recordedPurchase,
+      importRecord,
+      totalStockAdded,
+      importedCount: preparedItems.length,
+    });
+  } catch (err: any) {
+    console.error('Confirm purchase import error:', err);
+    return res.status(400).json({ error: err.message || 'Failed to confirm purchase import' });
+  }
+});
+
+// 6. View Past Purchase Imports History
+apiRouter.get('/purchase-import/history', async (_req: Request, res: Response) => {
+  try {
+    const history = await db.getPurchaseImports();
+    return res.json(history);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
   }
 });
 

@@ -422,6 +422,25 @@ export class NeonDatabaseAdapter {
         );
       `);
 
+      // 16. Purchase Imports History
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS purchase_imports (
+          id VARCHAR(64) PRIMARY KEY,
+          supplier_name VARCHAR(255),
+          supplier_invoice_number VARCHAR(100),
+          invoice_date DATE,
+          file_name VARCHAR(255),
+          file_type VARCHAR(50),
+          total_items INTEGER DEFAULT 0,
+          imported_items INTEGER DEFAULT 0,
+          grand_total NUMERIC(12, 2) DEFAULT 0.0,
+          tax_type VARCHAR(20) DEFAULT 'IGST',
+          status VARCHAR(50) DEFAULT 'CONFIRMED',
+          purchase_id VARCHAR(64),
+          created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+
       await client.query('COMMIT');
 
       // Fetch created table list
@@ -1063,7 +1082,7 @@ export class NeonDatabaseAdapter {
   public async persistBatch(b: any): Promise<void> {
     if (!this.pool) return;
     try {
-      await this.pool.query(
+      const res = await this.pool.query(
         `INSERT INTO medicine_batches (
           id, medicine_id, batch_number, expiry_date, purchase_rate,
           mrp, selling_rate, initial_qty, current_qty, free_qty,
@@ -1075,13 +1094,17 @@ export class NeonDatabaseAdapter {
           mrp = EXCLUDED.mrp,
           selling_rate = EXCLUDED.selling_rate,
           expiry_date = EXCLUDED.expiry_date,
-          updated_at = NOW()`,
+          updated_at = NOW()
+        RETURNING id`,
         [
           b.id, b.medicineId, b.batchNumber, b.expiryDate, b.purchaseRate,
           b.mrp, b.sellingRate, b.initialQty, b.currentQty, b.freeQty || 0,
           b.supplierId || null, b.purchaseInvoiceRef || null, b.gstRate || 5.0, b.discount || 0
         ]
       );
+      if (res.rows && res.rows[0]?.id) {
+        b.id = res.rows[0].id;
+      }
     } catch (err: any) {
       console.error('Neon DB: persistBatch error:', err.message);
       throw err;
@@ -1466,6 +1489,64 @@ export class NeonDatabaseAdapter {
     } catch (err: any) {
       console.error('Neon DB: persistProfile error:', err.message);
       throw err;
+    }
+  }
+
+  public async persistPurchaseImport(imp: any): Promise<void> {
+    if (!this.pool) return;
+    try {
+      await this.pool.query(
+        `INSERT INTO purchase_imports (
+          id, supplier_name, supplier_invoice_number, invoice_date,
+          file_name, file_type, total_items, imported_items,
+          grand_total, tax_type, status, purchase_id, created_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          imported_items = EXCLUDED.imported_items,
+          status = EXCLUDED.status,
+          purchase_id = EXCLUDED.purchase_id`,
+        [
+          imp.id,
+          imp.supplierName,
+          imp.supplierInvoiceNumber,
+          imp.invoiceDate,
+          imp.fileName || 'invoice-scan',
+          imp.fileType || 'application/pdf',
+          imp.totalItems || 0,
+          imp.importedItems || 0,
+          imp.grandTotal || 0,
+          imp.taxType || 'IGST',
+          imp.status || 'CONFIRMED',
+          imp.purchaseId || null,
+        ]
+      );
+    } catch (err: any) {
+      console.error('Neon DB: persistPurchaseImport error:', err.message);
+    }
+  }
+
+  public async getPurchaseImports(): Promise<any[]> {
+    if (!this.pool) return [];
+    try {
+      const res = await this.pool.query('SELECT * FROM purchase_imports ORDER BY created_at DESC LIMIT 50');
+      return res.rows.map((r: any) => ({
+        id: r.id,
+        supplierName: r.supplier_name,
+        supplierInvoiceNumber: r.supplier_invoice_number,
+        invoiceDate: r.invoice_date ? new Date(r.invoice_date).toISOString().split('T')[0] : '',
+        fileName: r.file_name,
+        fileType: r.file_type,
+        totalItems: Number(r.total_items || 0),
+        importedItems: Number(r.imported_items || 0),
+        grandTotal: Number(r.grand_total || 0),
+        taxType: r.tax_type,
+        status: r.status,
+        purchaseId: r.purchase_id,
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+      }));
+    } catch (err: any) {
+      console.error('Neon DB: getPurchaseImports error:', err.message);
+      return [];
     }
   }
 }

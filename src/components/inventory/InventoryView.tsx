@@ -2,10 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { api, Medicine, MedicineBatch } from '../../lib/api';
 import {
   Search, Plus, Filter, Download, ChevronDown, ChevronRight,
-  Package, AlertTriangle, Edit3, Trash2, Check, RefreshCw, X, Sliders
+  Package, AlertTriangle, Edit3, Trash2, Check, RefreshCw, X, Sliders, FileText
 } from 'lucide-react';
 
-export const InventoryView: React.FC = () => {
+interface InventoryViewProps {
+  onNavigateToUpload?: () => void;
+}
+
+export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigateToUpload }) => {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -239,17 +243,26 @@ export const InventoryView: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {onNavigateToUpload && (
+            <button
+              onClick={onNavigateToUpload}
+              className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white font-extrabold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <FileText className="w-4 h-4 text-teal-200" />
+              📄 Upload Purchase Bill
+            </button>
+          )}
           <button
             onClick={handleExportCsv}
-            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg border border-slate-300 transition flex items-center gap-1.5 cursor-pointer"
+            className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl border border-slate-300 transition flex items-center gap-1.5 cursor-pointer"
           >
             <Download className="w-4 h-4" />
             Export CSV
           </button>
           <button
             onClick={() => setShowAddMed(true)}
-            className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white font-bold text-xs rounded-lg shadow-xs transition flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             Add Medicine

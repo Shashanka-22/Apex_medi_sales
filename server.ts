@@ -1,8 +1,10 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import express from 'express';
 import app from './server/app.js';
 
-const PORT = Number(process.env.PORT) || 3000;
+// AI Studio environment constraint: dev server must always run on port 3000
+const PORT = 3000;
 
 async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -27,7 +29,6 @@ async function startServer() {
 }
 
 function expressStaticFallback(distPath: string) {
-  const express = require('express');
   const router = express.Router();
   router.use(express.static(distPath));
   router.get('*', (_req: any, res: any) => {

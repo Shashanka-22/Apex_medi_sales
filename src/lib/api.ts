@@ -203,6 +203,134 @@ export interface Purchase {
   createdAt: string;
 }
 
+export interface ExtractedMedicineRow {
+  serialNumber?: number;
+  productName: string;
+  genericName?: string;
+  packing?: string;
+  hsnCode?: string;
+  manufacturer?: string;
+  rack?: string;
+  batchNumber: string;
+  mfgDate?: string;
+  expiryDate: string;
+  quantity: number;
+  freeQty: number;
+  mrp: number;
+  purchaseRate: number;
+  discountPercent: number;
+  gstRate: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
+  taxableAmount?: number;
+  amount: number;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  uncertainFields: string[];
+  matchedMedicineId?: string;
+  matchedMedicineName?: string;
+  matchedBatchId?: string;
+  matchType?: 'MATCHED_EXISTING_BATCH' | 'MATCHED_NEW_BATCH' | 'NEW_MEDICINE' | 'DUPLICATE' | 'UNCERTAIN';
+}
+
+export interface PrintedInvoiceSummary {
+  printedTotItems?: number;
+  printedTotQty?: number;
+  printedSaleValue?: number;
+  printedCashDiscount?: number;
+  printedTaxableAmount?: number;
+  printedCgstAmount?: number;
+  printedSgstAmount?: number;
+  printedTotalTax?: number;
+  printedGrandTotal?: number;
+}
+
+export interface DocumentMeta {
+  pagesUploaded: number;
+  pagesProcessed: number;
+  indicatedTotalPages?: number;
+  currentPageNumber?: number;
+  documentCompleteness: 'COMPLETE' | 'INCOMPLETE' | 'UNKNOWN';
+  reconciliationStatus: 'VERIFIED' | 'NEEDS_REVIEW' | 'INCOMPLETE_DOCUMENT' | 'EXTRACTION_FAILED';
+  reconciliationDifference: number;
+  incompleteWarning?: string;
+  notes?: string;
+}
+
+export interface ExtractedInvoiceData {
+  supplier: {
+    name: string;
+    gstin?: string;
+    address?: string;
+    phone?: string;
+    dlNo?: string;
+  };
+  buyer?: {
+    name?: string;
+    gstin?: string;
+    address?: string;
+    phone?: string;
+    dlNo?: string;
+    state?: string;
+    stateCode?: string;
+  };
+  invoice: {
+    invoiceNumber: string;
+    invoiceDate: string;
+    taxType: 'GST' | 'IGST';
+    paymentTerms?: string;
+  };
+  items: ExtractedMedicineRow[];
+  summary: {
+    totalQuantity: number;
+    subtotal?: number;
+    taxableAmount: number;
+    cgstAmount: number;
+    sgstAmount: number;
+    igstAmount: number;
+    discountAmount: number;
+    roundOff: number;
+    grandTotal: number;
+  };
+  printedSummary?: PrintedInvoiceSummary;
+  documentMeta?: DocumentMeta;
+  rawTextNotes?: string;
+  sourceType: 'UPLOADED_FILE' | 'SAMPLE_PRESET';
+  sampleId?: string;
+  fileName?: string;
+  fileSize?: number;
+}
+
+export interface PurchaseImportRecord {
+  id: string;
+  supplierName: string;
+  supplierInvoiceNumber: string;
+  invoiceDate: string;
+  fileName: string;
+  fileType: string;
+  totalItems: number;
+  importedItems: number;
+  grandTotal: number;
+  taxType: string;
+  status: 'CONFIRMED' | 'PARTIAL' | 'DRAFT' | 'CANCELLED';
+  purchaseId?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface PurchaseImportSampleMeta {
+  id: string;
+  title: string;
+  itemsCount: number;
+  category: string;
+  supplierName: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  grandTotal: number;
+  previewUrl: string;
+  description: string;
+}
+
 export interface DashboardReport {
   todaySalesTotal: number;
   todaySalesCount: number;
@@ -305,7 +433,11 @@ class ApiService {
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
-      throw new Error(data.error || `Request failed with status ${res.status}`);
+      let msg = data.error;
+      if (typeof msg === 'object' && msg !== null) {
+        msg = msg.message || JSON.stringify(msg);
+      }
+      throw new Error(msg || data.message || `Request failed with status ${res.status}`);
     }
 
     return data as T;
@@ -455,7 +587,50 @@ class ApiService {
     });
   }
 
-  // OCR
+  // AI Purchase Bill Import & Vision AI OCR
+  async getPurchaseImportSamples(): Promise<PurchaseImportSampleMeta[]> {
+    return this.request('/api/purchase-import/samples');
+  }
+
+  async getPurchaseImportSample(id: string): Promise<ExtractedInvoiceData> {
+    return this.request(`/api/purchase-import/samples/${id}`);
+  }
+
+  async uploadPurchaseBill(file: File): Promise<ExtractedInvoiceData> {
+    const formData = new FormData();
+    formData.append('invoiceFile', file);
+    return this.request('/api/purchase-import/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async matchImportItems(items: ExtractedMedicineRow[]): Promise<{ items: ExtractedMedicineRow[] }> {
+    return this.request('/api/purchase-import/match', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    });
+  }
+
+  async confirmBulkPurchaseImport(payload: any): Promise<{
+    success: boolean;
+    message: string;
+    purchase: Purchase;
+    importRecord: PurchaseImportRecord;
+    totalStockAdded: number;
+    importedCount: number;
+  }> {
+    return this.request('/api/purchase-import/confirm', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getPurchaseImportHistory(): Promise<PurchaseImportRecord[]> {
+    return this.request('/api/purchase-import/history');
+  }
+
+  // Legacy OCR aliases for backward compatibility
   async uploadInvoiceForOcr(file: File): Promise<any> {
     const formData = new FormData();
     formData.append('invoiceFile', file);
@@ -465,7 +640,7 @@ class ApiService {
     });
   }
 
-  async getOcrSample(sampleId: 'kroyf_distributor' | 'apex_tax_invoice'): Promise<any> {
+  async getOcrSample(sampleId: string): Promise<any> {
     return this.request(`/api/ocr/samples/${sampleId}`);
   }
 
