@@ -413,6 +413,12 @@ class ApiService {
     });
   }
 
+  async deleteSupplier(id: string): Promise<{ success: boolean }> {
+    return this.request(`/api/suppliers/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
   async getCustomers(): Promise<Customer[]> {
     return this.request('/api/customers');
   }
@@ -428,6 +434,12 @@ class ApiService {
     return this.request(`/api/customers/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
+    });
+  }
+
+  async deleteCustomer(id: string): Promise<{ success: boolean }> {
+    return this.request(`/api/customers/${id}`, {
+      method: 'DELETE',
     });
   }
 

@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import { db } from './db.js';
+import { neonAdapter } from './neon.js';
 import { extractInvoiceWithGemini, getSampleInvoiceData } from './ocr.js';
 
 dotenv.config();
@@ -67,6 +68,21 @@ apiRouter.get('/health', (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'production',
   });
+});
+
+// Neon Database status endpoint
+apiRouter.get('/db/status', async (_req: Request, res: Response) => {
+  try {
+    const status = await neonAdapter.getStatus();
+    const counts = await neonAdapter.getTableCounts();
+    return res.json({
+      ...status,
+      counts,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // ----------------------------------------------------
@@ -139,7 +155,7 @@ apiRouter.get('/auth/me', authenticateToken, (req: any, res: Response) => {
   });
 });
 
-apiRouter.post('/auth/change-password', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/auth/change-password', authenticateToken, async (req: any, res: Response) => {
   try {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) {
@@ -160,7 +176,7 @@ apiRouter.post('/auth/change-password', authenticateToken, (req: any, res: Respo
     const salt = bcrypt.genSaltSync(10);
     const newHash = bcrypt.hashSync(newPassword, salt);
 
-    db.updateUser(user.id, {
+    await db.updateUser(user.id, {
       passwordHash: newHash,
       mustChangePassword: false,
     });
@@ -181,14 +197,14 @@ apiRouter.post('/auth/change-password', authenticateToken, (req: any, res: Respo
   }
 });
 
-apiRouter.post('/auth/update-account', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/auth/update-account', authenticateToken, async (req: any, res: Response) => {
   try {
     const { name, email } = req.body;
     if (!name || !email) {
       return res.status(400).json({ error: 'Name and email are required' });
     }
 
-    const updated = db.updateUser(req.user.id, {
+    const updated = await db.updateUser(req.user.id, {
       name: name.trim(),
       email: email.trim(),
     });
@@ -211,9 +227,9 @@ apiRouter.get('/profile', (_req: Request, res: Response) => {
   return res.json(db.getProfile());
 });
 
-apiRouter.put('/profile', authenticateToken, (req: any, res: Response) => {
+apiRouter.put('/profile', authenticateToken, async (req: any, res: Response) => {
   try {
-    const updated = db.updateProfile(req.body);
+    const updated = await db.updateProfile(req.body);
     db.logAudit({
       userId: req.user?.id,
       userName: req.user?.name,
@@ -248,9 +264,9 @@ apiRouter.get('/medicines', (_req: Request, res: Response) => {
   return res.json(result);
 });
 
-apiRouter.post('/medicines', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/medicines', authenticateToken, async (req: any, res: Response) => {
   try {
-    const newMed = db.addMedicine(req.body);
+    const newMed = await db.addMedicine(req.body);
     db.logAudit({
       userId: req.user?.id,
       userName: req.user?.name,
@@ -265,18 +281,18 @@ apiRouter.post('/medicines', authenticateToken, (req: any, res: Response) => {
   }
 });
 
-apiRouter.put('/medicines/:id', authenticateToken, (req: any, res: Response) => {
+apiRouter.put('/medicines/:id', authenticateToken, async (req: any, res: Response) => {
   try {
-    const updated = db.updateMedicine(req.params.id, req.body);
+    const updated = await db.updateMedicine(req.params.id, req.body);
     return res.json(updated);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-apiRouter.delete('/medicines/:id', authenticateToken, (req: any, res: Response) => {
+apiRouter.delete('/medicines/:id', authenticateToken, async (req: any, res: Response) => {
   try {
-    db.deleteMedicine(req.params.id);
+    await db.deleteMedicine(req.params.id);
     return res.json({ success: true });
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
@@ -301,32 +317,32 @@ apiRouter.get('/batches', (req: Request, res: Response) => {
   return res.json(enriched);
 });
 
-apiRouter.post('/batches', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/batches', authenticateToken, async (req: any, res: Response) => {
   try {
-    const newBatch = db.addBatch(req.body);
+    const newBatch = await db.addBatch(req.body);
     return res.status(201).json(newBatch);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-apiRouter.put('/batches/:id', authenticateToken, (req: any, res: Response) => {
+apiRouter.put('/batches/:id', authenticateToken, async (req: any, res: Response) => {
   try {
-    const updated = db.updateBatch(req.params.id, req.body);
+    const updated = await db.updateBatch(req.params.id, req.body);
     return res.json(updated);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-apiRouter.post('/inventory/adjust', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/inventory/adjust', authenticateToken, async (req: any, res: Response) => {
   try {
     const { batchId, newQuantity, reason } = req.body;
     if (!batchId || newQuantity === undefined || !reason) {
       return res.status(400).json({ error: 'batchId, newQuantity, and reason are required' });
     }
 
-    const result = db.adjustStock({
+    const result = await db.adjustStock({
       batchId,
       newQuantity: Number(newQuantity),
       reason,
@@ -347,19 +363,28 @@ apiRouter.get('/suppliers', (_req: Request, res: Response) => {
   return res.json(db.getSuppliers());
 });
 
-apiRouter.post('/suppliers', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/suppliers', authenticateToken, async (req: any, res: Response) => {
   try {
-    const sup = db.addSupplier(req.body);
+    const sup = await db.addSupplier(req.body);
     return res.status(201).json(sup);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-apiRouter.put('/suppliers/:id', authenticateToken, (req: any, res: Response) => {
+apiRouter.put('/suppliers/:id', authenticateToken, async (req: any, res: Response) => {
   try {
-    const sup = db.updateSupplier(req.params.id, req.body);
+    const sup = await db.updateSupplier(req.params.id, req.body);
     return res.json(sup);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.delete('/suppliers/:id', authenticateToken, async (req: any, res: Response) => {
+  try {
+    await db.deleteSupplier(req.params.id);
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
@@ -369,19 +394,28 @@ apiRouter.get('/customers', (_req: Request, res: Response) => {
   return res.json(db.getCustomers());
 });
 
-apiRouter.post('/customers', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/customers', authenticateToken, async (req: any, res: Response) => {
   try {
-    const cust = db.addCustomer(req.body);
+    const cust = await db.addCustomer(req.body);
     return res.status(201).json(cust);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-apiRouter.put('/customers/:id', authenticateToken, (req: any, res: Response) => {
+apiRouter.put('/customers/:id', authenticateToken, async (req: any, res: Response) => {
   try {
-    const cust = db.updateCustomer(req.params.id, req.body);
+    const cust = await db.updateCustomer(req.params.id, req.body);
     return res.json(cust);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+apiRouter.delete('/customers/:id', authenticateToken, async (req: any, res: Response) => {
+  try {
+    await db.deleteCustomer(req.params.id);
+    return res.json({ success: true });
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
@@ -394,9 +428,9 @@ apiRouter.get('/purchases', (_req: Request, res: Response) => {
   return res.json(db.getPurchases());
 });
 
-apiRouter.post('/purchases', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/purchases', authenticateToken, async (req: any, res: Response) => {
   try {
-    const purchase = db.recordPurchase(req.body, req.user?.id, req.user?.name);
+    const purchase = await db.recordPurchase(req.body, req.user?.id, req.user?.name);
     return res.status(201).json(purchase);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
@@ -439,22 +473,22 @@ apiRouter.get('/sales', (_req: Request, res: Response) => {
   return res.json(db.getSales());
 });
 
-apiRouter.post('/sales', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/sales', authenticateToken, async (req: any, res: Response) => {
   try {
-    const sale = db.recordSale(req.body, req.user?.id, req.user?.name);
+    const sale = await db.recordSale(req.body, req.user?.id, req.user?.name);
     return res.status(201).json(sale);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
   }
 });
 
-apiRouter.post('/sales/:id/cancel', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/sales/:id/cancel', authenticateToken, async (req: any, res: Response) => {
   try {
     const { reason } = req.body;
     if (!reason) {
       return res.status(400).json({ error: 'Cancellation reason is mandatory' });
     }
-    const cancelled = db.cancelSale(req.params.id, reason, req.user?.id, req.user?.name);
+    const cancelled = await db.cancelSale(req.params.id, reason, req.user?.id, req.user?.name);
     return res.json(cancelled);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });
@@ -507,9 +541,9 @@ apiRouter.get('/payments', (_req: Request, res: Response) => {
   return res.json(db.getPayments());
 });
 
-apiRouter.post('/payments', authenticateToken, (req: any, res: Response) => {
+apiRouter.post('/payments', authenticateToken, async (req: any, res: Response) => {
   try {
-    const payment = db.recordPayment(req.body, req.user?.id, req.user?.name);
+    const payment = await db.recordPayment(req.body, req.user?.id, req.user?.name);
     return res.status(201).json(payment);
   } catch (err: any) {
     return res.status(400).json({ error: err.message });

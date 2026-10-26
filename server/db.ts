@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
+import { neonAdapter } from './neon.js';
 
 export interface User {
   id: string;
@@ -324,12 +325,70 @@ function getStoragePaths() {
 
 class DatabaseEngine {
   private state: DatabaseState | null = null;
+  private neonSyncInProgress = false;
 
   constructor() {
     this.ensureInitialized();
+    this.syncFromNeon();
+  }
+
+  public async syncFromNeon(): Promise<boolean> {
+    if (this.neonSyncInProgress || !neonAdapter.isAvailable()) return false;
+    this.neonSyncInProgress = true;
+    try {
+      const neonData = await neonAdapter.loadAllFromNeon();
+      if (neonData && neonData.medicines && neonData.medicines.length > 0) {
+        const current = this.state || ({} as Partial<DatabaseState>);
+
+        // Merge helper: Neon is primary source of truth, but preserve any active in-memory items
+        const mergeById = <T extends { id: string }>(currentList: T[] | undefined, neonList: T[] | undefined): T[] => {
+          const map = new Map<string, T>();
+          if (neonList) {
+            for (const item of neonList) {
+              map.set(item.id, item);
+            }
+          }
+          if (currentList) {
+            for (const item of currentList) {
+              // If already present, neon has the committed state, but if only in currentList, keep it
+              if (!map.has(item.id)) {
+                map.set(item.id, item);
+              }
+            }
+          }
+          return Array.from(map.values());
+        };
+
+        this.state = {
+          users: neonData.users && neonData.users.length > 0 ? neonData.users : (current.users || []),
+          businessProfile: neonData.businessProfile || (current.businessProfile as any),
+          medicines: mergeById(current.medicines, neonData.medicines),
+          batches: mergeById(current.batches, neonData.batches),
+          suppliers: mergeById(current.suppliers, neonData.suppliers),
+          customers: mergeById(current.customers, neonData.customers),
+          purchases: mergeById(current.purchases, neonData.purchases),
+          sales: mergeById(current.sales, neonData.sales),
+          payments: mergeById(current.payments, neonData.payments),
+          customerLedgers: mergeById(current.customerLedgers, neonData.customerLedgers),
+          supplierLedgers: mergeById(current.supplierLedgers, neonData.supplierLedgers),
+          stockMovements: mergeById(current.stockMovements, neonData.stockMovements),
+          auditLogs: mergeById(current.auditLogs, neonData.auditLogs),
+        };
+        this.persist();
+        console.log(`Neon PostgreSQL: Synced live state (${neonData.medicines.length} medicines, ${neonData.batches.length} batches, ${neonData.sales.length} sales)`);
+        return true;
+      }
+      return false;
+    } catch (err: any) {
+      console.warn('Neon sync notice:', err.message);
+      return false;
+    } finally {
+      this.neonSyncInProgress = false;
+    }
   }
 
   private ensureInitialized() {
+    if (this.state) return;
     const { dir, file, bundledFile } = getStoragePaths();
 
     try {
@@ -1264,7 +1323,18 @@ class DatabaseEngine {
   }
 
   public getUserByEmail(email: string): User | undefined {
-    return this.getState().users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    const target = (email || '').toLowerCase().trim();
+    return this.getState().users.find((u) => {
+      const uEmail = (u.email || '').toLowerCase().trim();
+      if (uEmail === target) return true;
+      if (
+        (target === 'admin@apexmedisales.com' || target === 'apexmedisales@gmail.com') &&
+        (uEmail === 'admin@apexmedisales.com' || uEmail === 'apexmedisales@gmail.com')
+      ) {
+        return true;
+      }
+      return false;
+    });
   }
 
   public getUserById(id: string): User | undefined {
@@ -1324,17 +1394,18 @@ class DatabaseEngine {
   }
 
   // --- Write Operations with Persistence ---
-  public updateUser(userId: string, updates: Partial<User>): User {
+  public async updateUser(userId: string, updates: Partial<User>): Promise<User> {
     const state = this.getState();
     const idx = state.users.findIndex((u) => u.id === userId);
     if (idx === -1) throw new Error('User not found');
     const updated = { ...state.users[idx], ...updates, updatedAt: new Date().toISOString() };
     state.users[idx] = updated;
     this.persist();
+    await neonAdapter.persistUser(updated);
     return updated;
   }
 
-  public updateProfile(updates: Partial<BusinessProfile>): BusinessProfile {
+  public async updateProfile(updates: Partial<BusinessProfile>): Promise<BusinessProfile> {
     const state = this.getState();
     state.businessProfile = {
       ...state.businessProfile,
@@ -1342,10 +1413,11 @@ class DatabaseEngine {
       updatedAt: new Date().toISOString(),
     };
     this.persist();
+    await neonAdapter.persistProfile(state.businessProfile);
     return state.businessProfile;
   }
 
-  public addMedicine(medicine: Omit<Medicine, 'id' | 'createdAt' | 'updatedAt'>): Medicine {
+  public async addMedicine(medicine: Omit<Medicine, 'id' | 'createdAt' | 'updatedAt'>): Promise<Medicine> {
     const state = this.getState();
     const newMed: Medicine = {
       ...medicine,
@@ -1353,28 +1425,41 @@ class DatabaseEngine {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    await neonAdapter.persistMedicine(newMed);
     state.medicines.unshift(newMed);
     this.persist();
     return newMed;
   }
 
-  public updateMedicine(id: string, updates: Partial<Medicine>): Medicine {
+  public async updateMedicine(id: string, updates: Partial<Medicine>): Promise<Medicine> {
     const state = this.getState();
     const idx = state.medicines.findIndex((m) => m.id === id);
     if (idx === -1) throw new Error('Medicine not found');
-    state.medicines[idx] = { ...state.medicines[idx], ...updates, updatedAt: new Date().toISOString() };
+    const updated = { ...state.medicines[idx], ...updates, updatedAt: new Date().toISOString() };
+    await neonAdapter.persistMedicine(updated);
+    state.medicines[idx] = updated;
     this.persist();
-    return state.medicines[idx];
+    return updated;
   }
 
-  public deleteMedicine(id: string): void {
+  public async deleteMedicine(id: string): Promise<void> {
     const state = this.getState();
+    const med = state.medicines.find((m) => m.id === id);
+    if (!med) throw new Error('Medicine not found');
+
+    const hasSales = state.sales.some((s) => s.items.some((it) => it.medicineId === id));
+    const hasPurchases = state.purchases.some((p) => p.items.some((it) => it.medicineId === id));
+    if (hasSales || hasPurchases) {
+      throw new Error('Cannot delete medicine with existing transaction history (sales or purchases). Set isActive to false instead.');
+    }
+
+    await neonAdapter.removeMedicine(id);
     state.medicines = state.medicines.filter((m) => m.id !== id);
     state.batches = state.batches.filter((b) => b.medicineId !== id);
     this.persist();
   }
 
-  public addBatch(batch: Omit<MedicineBatch, 'id' | 'createdAt' | 'updatedAt'>): MedicineBatch {
+  public async addBatch(batch: Omit<MedicineBatch, 'id' | 'createdAt' | 'updatedAt'>): Promise<MedicineBatch> {
     const state = this.getState();
     // Check if batch already exists for medicine
     const existing = state.batches.find(
@@ -1388,6 +1473,7 @@ class DatabaseEngine {
       existing.purchaseRate = batch.purchaseRate;
       existing.expiryDate = batch.expiryDate;
       existing.updatedAt = new Date().toISOString();
+      await neonAdapter.persistBatch(existing);
       this.persist();
       return existing;
     }
@@ -1398,27 +1484,30 @@ class DatabaseEngine {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    await neonAdapter.persistBatch(newBatch);
     state.batches.push(newBatch);
     this.persist();
     return newBatch;
   }
 
-  public updateBatch(id: string, updates: Partial<MedicineBatch>): MedicineBatch {
+  public async updateBatch(id: string, updates: Partial<MedicineBatch>): Promise<MedicineBatch> {
     const state = this.getState();
     const idx = state.batches.findIndex((b) => b.id === id);
     if (idx === -1) throw new Error('Batch not found');
-    state.batches[idx] = { ...state.batches[idx], ...updates, updatedAt: new Date().toISOString() };
+    const updated = { ...state.batches[idx], ...updates, updatedAt: new Date().toISOString() };
+    await neonAdapter.persistBatch(updated);
+    state.batches[idx] = updated;
     this.persist();
-    return state.batches[idx];
+    return updated;
   }
 
-  public adjustStock(params: {
+  public async adjustStock(params: {
     batchId: string;
     newQuantity: number;
     reason: string;
     userId?: string;
     userName?: string;
-  }): { batch: MedicineBatch; movement: StockMovement } {
+  }): Promise<{ batch: MedicineBatch; movement: StockMovement }> {
     const state = this.getState();
     const batch = state.batches.find((b) => b.id === params.batchId);
     if (!batch) throw new Error('Batch not found');
@@ -1443,8 +1532,11 @@ class DatabaseEngine {
       reason: params.reason,
       createdAt: new Date().toISOString(),
     };
-    state.stockMovements.unshift(movement);
 
+    await neonAdapter.updateBatchCurrentQty(batch.id, batch.currentQty);
+    await neonAdapter.persistStockMovement(movement);
+
+    state.stockMovements.unshift(movement);
     this.logAudit({
       userId: params.userId,
       userName: params.userName,
@@ -1458,7 +1550,7 @@ class DatabaseEngine {
     return { batch, movement };
   }
 
-  public addSupplier(supplier: Omit<Supplier, 'id' | 'createdAt' | 'updatedAt'>): Supplier {
+  public async addSupplier(supplier: Omit<Supplier, 'id' | 'createdAt' | 'updatedAt'>): Promise<Supplier> {
     const state = this.getState();
     const newSup: Supplier = {
       ...supplier,
@@ -1466,21 +1558,40 @@ class DatabaseEngine {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    await neonAdapter.persistSupplier(newSup);
     state.suppliers.push(newSup);
     this.persist();
     return newSup;
   }
 
-  public updateSupplier(id: string, updates: Partial<Supplier>): Supplier {
+  public async updateSupplier(id: string, updates: Partial<Supplier>): Promise<Supplier> {
     const state = this.getState();
     const idx = state.suppliers.findIndex((s) => s.id === id);
     if (idx === -1) throw new Error('Supplier not found');
-    state.suppliers[idx] = { ...state.suppliers[idx], ...updates, updatedAt: new Date().toISOString() };
+    const updated = { ...state.suppliers[idx], ...updates, updatedAt: new Date().toISOString() };
+    await neonAdapter.persistSupplier(updated);
+    state.suppliers[idx] = updated;
     this.persist();
-    return state.suppliers[idx];
+    return updated;
   }
 
-  public addCustomer(customer: Omit<Customer, 'id' | 'createdAt' | 'updatedAt'>): Customer {
+  public async deleteSupplier(id: string): Promise<void> {
+    const state = this.getState();
+    const sup = state.suppliers.find((s) => s.id === id);
+    if (!sup) throw new Error('Supplier not found');
+    if (Math.abs(sup.currentBalance) > 0.01) {
+      throw new Error(`Cannot delete supplier with non-zero balance (₹${sup.currentBalance.toFixed(2)})`);
+    }
+    const hasPurchases = state.purchases.some((p) => p.supplierId === id);
+    if (hasPurchases) {
+      throw new Error('Cannot delete supplier with associated purchase invoices');
+    }
+    await neonAdapter.removeSupplier(id);
+    state.suppliers = state.suppliers.filter((s) => s.id !== id);
+    this.persist();
+  }
+
+  public async addCustomer(customer: Omit<Customer, 'id' | 'createdAt' | 'updatedAt'>): Promise<Customer> {
     const state = this.getState();
     const newCust: Customer = {
       ...customer,
@@ -1488,22 +1599,45 @@ class DatabaseEngine {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+    await neonAdapter.persistCustomer(newCust);
     state.customers.push(newCust);
     this.persist();
     return newCust;
   }
 
-  public updateCustomer(id: string, updates: Partial<Customer>): Customer {
+  public async updateCustomer(id: string, updates: Partial<Customer>): Promise<Customer> {
     const state = this.getState();
     const idx = state.customers.findIndex((c) => c.id === id);
     if (idx === -1) throw new Error('Customer not found');
-    state.customers[idx] = { ...state.customers[idx], ...updates, updatedAt: new Date().toISOString() };
+    const updated = { ...state.customers[idx], ...updates, updatedAt: new Date().toISOString() };
+    await neonAdapter.persistCustomer(updated);
+    state.customers[idx] = updated;
     this.persist();
-    return state.customers[idx];
+    return updated;
+  }
+
+  public async deleteCustomer(id: string): Promise<void> {
+    const state = this.getState();
+    const cust = state.customers.find((c) => c.id === id);
+    if (!cust) throw new Error('Customer not found');
+    if (Math.abs(cust.currentBalance) > 0.01) {
+      throw new Error(`Cannot delete customer with non-zero balance (₹${cust.currentBalance.toFixed(2)})`);
+    }
+    const hasSales = state.sales.some((s) => s.customerId === id);
+    if (hasSales) {
+      throw new Error('Cannot delete customer with associated sales invoices');
+    }
+    await neonAdapter.removeCustomer(id);
+    state.customers = state.customers.filter((c) => c.id !== id);
+    this.persist();
   }
 
   // --- Transactions: Purchases ---
-  public recordPurchase(purchaseData: Omit<Purchase, 'id' | 'createdAt' | 'updatedAt'>, userId?: string, userName?: string): Purchase {
+  public async recordPurchase(
+    purchaseData: Omit<Purchase, 'id' | 'createdAt' | 'updatedAt'>,
+    userId?: string,
+    userName?: string
+  ): Promise<Purchase> {
     const state = this.getState();
 
     // Check for duplicate supplier invoice
@@ -1529,9 +1663,10 @@ class DatabaseEngine {
       })),
     };
 
-    state.purchases.unshift(purchase);
+    // First, commit the purchase transaction to Neon PostgreSQL
+    await neonAdapter.persistPurchase(purchase);
 
-    // Update batch stock and create stock movements
+    // Update batch stock and create stock movements in memory and Neon
     for (const item of purchase.items) {
       const existingBatch = state.batches.find(
         (b) => b.medicineId === item.medicineId && b.batchNumber.toLowerCase() === item.batchNumber.toLowerCase()
@@ -1547,8 +1682,8 @@ class DatabaseEngine {
         existingBatch.expiryDate = item.expiryDate;
         existingBatch.updatedAt = new Date().toISOString();
 
-        state.stockMovements.unshift({
-          id: `sm_${Date.now()}_${Math.random()}`,
+        const sm: StockMovement = {
+          id: `sm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           medicineId: item.medicineId,
           medicineName: item.medicineName,
           batchId: existingBatch.id,
@@ -1561,7 +1696,10 @@ class DatabaseEngine {
           referenceId: purchase.invoiceNumber,
           reason: `Supplier Invoice: ${purchase.supplierInvoiceNumber}`,
           createdAt: new Date().toISOString(),
-        });
+        };
+        state.stockMovements.unshift(sm);
+        await neonAdapter.persistBatch(existingBatch);
+        await neonAdapter.persistStockMovement(sm);
       } else {
         const newBatch: MedicineBatch = {
           id: `bat_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
@@ -1570,7 +1708,7 @@ class DatabaseEngine {
           expiryDate: item.expiryDate,
           purchaseRate: item.purchaseRate,
           mrp: item.mrp,
-          sellingRate: Math.round(item.mrp * 0.85 * 100) / 100, // Reasonable default selling rate below MRP
+          sellingRate: Math.round(item.mrp * 0.85 * 100) / 100,
           initialQty: totalQtyToAdd,
           currentQty: totalQtyToAdd,
           freeQty: item.freeQty || 0,
@@ -1583,8 +1721,8 @@ class DatabaseEngine {
         };
         state.batches.push(newBatch);
 
-        state.stockMovements.unshift({
-          id: `sm_${Date.now()}_${Math.random()}`,
+        const sm: StockMovement = {
+          id: `sm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           medicineId: item.medicineId,
           medicineName: item.medicineName,
           batchId: newBatch.id,
@@ -1597,18 +1735,20 @@ class DatabaseEngine {
           referenceId: purchase.invoiceNumber,
           reason: `New batch from Supplier Inv: ${purchase.supplierInvoiceNumber}`,
           createdAt: new Date().toISOString(),
-        });
+        };
+        state.stockMovements.unshift(sm);
+        await neonAdapter.persistBatch(newBatch);
+        await neonAdapter.persistStockMovement(sm);
       }
     }
 
     // Update Supplier Balance and Ledger
     const supplier = state.suppliers.find((s) => s.id === purchase.supplierId);
     if (supplier) {
-      const prevBal = supplier.currentBalance;
       supplier.currentBalance += purchase.grandTotal;
       supplier.updatedAt = new Date().toISOString();
 
-      state.supplierLedgers.unshift({
+      const sLedg: SupplierLedgerEntry = {
         id: `sldg_${Date.now()}`,
         supplierId: supplier.id,
         date: purchase.invoiceDate || new Date().toISOString(),
@@ -1620,8 +1760,13 @@ class DatabaseEngine {
         reference: purchase.supplierInvoiceNumber,
         remarks: `Purchase: ${purchase.supplierInvoiceNumber}`,
         createdAt: new Date().toISOString(),
-      });
+      };
+      state.supplierLedgers.unshift(sLedg);
+      await neonAdapter.persistSupplier(supplier);
+      await neonAdapter.persistSupplierLedger(sLedg);
     }
+
+    state.purchases.unshift(purchase);
 
     this.logAudit({
       userId,
@@ -1637,7 +1782,11 @@ class DatabaseEngine {
   }
 
   // --- Transactions: Sales Billing ---
-  public recordSale(saleData: Omit<Sale, 'id' | 'verificationToken' | 'isCancelled' | 'createdAt' | 'updatedAt'>, userId?: string, userName?: string): Sale {
+  public async recordSale(
+    saleData: Omit<Sale, 'id' | 'verificationToken' | 'isCancelled' | 'createdAt' | 'updatedAt'>,
+    userId?: string,
+    userName?: string
+  ): Promise<Sale> {
     const state = this.getState();
 
     // Validate and deduct stock atomically
@@ -1678,6 +1827,9 @@ class DatabaseEngine {
       })),
     };
 
+    // First persist the sale to Neon PostgreSQL
+    await neonAdapter.persistSale(sale);
+
     // Deduct batches and log stock movements
     for (const item of sale.items) {
       const batch = state.batches.find((b) => b.id === item.batchId)!;
@@ -1686,8 +1838,8 @@ class DatabaseEngine {
       batch.currentQty -= totalDeduction;
       batch.updatedAt = new Date().toISOString();
 
-      state.stockMovements.unshift({
-        id: `sm_${Date.now()}_${Math.random()}`,
+      const sm: StockMovement = {
+        id: `sm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         medicineId: item.medicineId,
         medicineName: item.medicineName,
         batchId: batch.id,
@@ -1700,7 +1852,11 @@ class DatabaseEngine {
         referenceId: sale.invoiceNumber,
         reason: `Sold on Invoice ${sale.invoiceNumber}`,
         createdAt: new Date().toISOString(),
-      });
+      };
+      state.stockMovements.unshift(sm);
+
+      await neonAdapter.updateBatchCurrentQty(batch.id, batch.currentQty);
+      await neonAdapter.persistStockMovement(sm);
     }
 
     // Customer ledger & balance update if customer is registered
@@ -1710,7 +1866,7 @@ class DatabaseEngine {
         customer.currentBalance += sale.balanceAmount;
         customer.updatedAt = new Date().toISOString();
 
-        state.customerLedgers.unshift({
+        const cLedg: CustomerLedgerEntry = {
           id: `cldg_${Date.now()}`,
           customerId: customer.id,
           date: sale.invoiceDate || new Date().toISOString(),
@@ -1722,7 +1878,11 @@ class DatabaseEngine {
           reference: sale.invoiceNumber,
           remarks: `Invoice ${sale.invoiceNumber}`,
           createdAt: new Date().toISOString(),
-        });
+        };
+        state.customerLedgers.unshift(cLedg);
+
+        await neonAdapter.persistCustomer(customer);
+        await neonAdapter.persistCustomerLedger(cLedg);
       }
     }
 
@@ -1742,9 +1902,9 @@ class DatabaseEngine {
   }
 
   // --- Transactions: Cancel Sale / Return ---
-  public cancelSale(saleId: string, reason: string, userId?: string, userName?: string): Sale {
+  public async cancelSale(saleId: string, reason: string, userId?: string, userName?: string): Promise<Sale> {
     const state = this.getState();
-    const sale = state.sales.find((s) => s.id === saleId);
+    const sale = state.sales.find((s) => s.id === saleId || s.invoiceNumber === saleId);
     if (!sale) throw new Error('Sale invoice not found');
     if (sale.isCancelled) throw new Error('Invoice is already cancelled');
 
@@ -1752,6 +1912,8 @@ class DatabaseEngine {
     sale.cancellationReason = reason;
     sale.cancelledAt = new Date().toISOString();
     sale.updatedAt = new Date().toISOString();
+
+    await neonAdapter.persistCancelSale(sale.id, reason);
 
     // Revert stock back to batches
     for (const item of sale.items) {
@@ -1763,8 +1925,8 @@ class DatabaseEngine {
         batch.currentQty += totalReturned;
         batch.updatedAt = new Date().toISOString();
 
-        state.stockMovements.unshift({
-          id: `sm_${Date.now()}_${Math.random()}`,
+        const sm: StockMovement = {
+          id: `sm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           medicineId: item.medicineId,
           medicineName: item.medicineName,
           batchId: batch.id,
@@ -1777,7 +1939,11 @@ class DatabaseEngine {
           referenceId: sale.invoiceNumber,
           reason: `Reversal of cancelled Invoice ${sale.invoiceNumber}: ${reason}`,
           createdAt: new Date().toISOString(),
-        });
+        };
+        state.stockMovements.unshift(sm);
+
+        await neonAdapter.updateBatchCurrentQty(batch.id, batch.currentQty);
+        await neonAdapter.persistStockMovement(sm);
       }
     }
 
@@ -1788,7 +1954,7 @@ class DatabaseEngine {
         customer.currentBalance -= sale.balanceAmount;
         customer.updatedAt = new Date().toISOString();
 
-        state.customerLedgers.unshift({
+        const cLedg: CustomerLedgerEntry = {
           id: `cldg_${Date.now()}`,
           customerId: customer.id,
           date: new Date().toISOString(),
@@ -1800,7 +1966,11 @@ class DatabaseEngine {
           reference: sale.invoiceNumber,
           remarks: `Credit Note / Cancel Invoice: ${reason}`,
           createdAt: new Date().toISOString(),
-        });
+        };
+        state.customerLedgers.unshift(cLedg);
+
+        await neonAdapter.persistCustomer(customer);
+        await neonAdapter.persistCustomerLedger(cLedg);
       }
     }
 
@@ -1818,7 +1988,11 @@ class DatabaseEngine {
   }
 
   // --- Transactions: Payments ---
-  public recordPayment(paymentData: Omit<Payment, 'id' | 'createdAt'>, userId?: string, userName?: string): Payment {
+  public async recordPayment(
+    paymentData: Omit<Payment, 'id' | 'createdAt'>,
+    userId?: string,
+    userName?: string
+  ): Promise<Payment> {
     const state = this.getState();
     const paymentId = `pmt_${Date.now()}`;
     const payment: Payment = {
@@ -1827,13 +2001,15 @@ class DatabaseEngine {
       createdAt: new Date().toISOString(),
     };
 
+    await neonAdapter.persistPayment(payment);
+
     if (payment.voucherType === 'RECEIPT' && payment.customerId) {
       const customer = state.customers.find((c) => c.id === payment.customerId);
       if (customer) {
         customer.currentBalance -= payment.amount;
         customer.updatedAt = new Date().toISOString();
 
-        state.customerLedgers.unshift({
+        const cLedg: CustomerLedgerEntry = {
           id: `cldg_${Date.now()}`,
           customerId: customer.id,
           date: payment.paymentDate,
@@ -1845,7 +2021,10 @@ class DatabaseEngine {
           reference: payment.referenceNumber || 'Payment Receipt',
           remarks: payment.notes || `Received via ${payment.paymentMode}`,
           createdAt: new Date().toISOString(),
-        });
+        };
+        state.customerLedgers.unshift(cLedg);
+        await neonAdapter.persistCustomer(customer);
+        await neonAdapter.persistCustomerLedger(cLedg);
       }
     } else if (payment.voucherType === 'PAYMENT' && payment.supplierId) {
       const supplier = state.suppliers.find((s) => s.id === payment.supplierId);
@@ -1853,7 +2032,7 @@ class DatabaseEngine {
         supplier.currentBalance -= payment.amount;
         supplier.updatedAt = new Date().toISOString();
 
-        state.supplierLedgers.unshift({
+        const sLedg: SupplierLedgerEntry = {
           id: `sldg_${Date.now()}`,
           supplierId: supplier.id,
           date: payment.paymentDate,
@@ -1865,7 +2044,10 @@ class DatabaseEngine {
           reference: payment.referenceNumber || 'Payment Voucher',
           remarks: payment.notes || `Paid via ${payment.paymentMode}`,
           createdAt: new Date().toISOString(),
-        });
+        };
+        state.supplierLedgers.unshift(sLedg);
+        await neonAdapter.persistSupplier(supplier);
+        await neonAdapter.persistSupplierLedger(sLedg);
       }
     }
 
@@ -1887,16 +2069,20 @@ class DatabaseEngine {
   // --- Audit Log ---
   public logAudit(entry: Omit<AuditLog, 'id' | 'createdAt'>): void {
     const state = this.getState();
-    state.auditLogs.unshift({
+    const logEntry: AuditLog = {
       ...entry,
       id: `aud_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
       createdAt: new Date().toISOString(),
-    });
+    };
+    state.auditLogs.unshift(logEntry);
     // Keep max 1000 logs
     if (state.auditLogs.length > 1000) {
       state.auditLogs.pop();
     }
     this.persist();
+    neonAdapter.persistAuditLog(logEntry).catch((err) => {
+      console.warn('Neon audit log error (non-fatal):', err.message);
+    });
   }
 }
 

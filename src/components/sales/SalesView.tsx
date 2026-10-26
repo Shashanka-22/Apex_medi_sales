@@ -46,6 +46,34 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice }) => {
     }
   };
 
+  const handleExportCsv = () => {
+    const rows = [
+      ['Invoice No', 'Date', 'Customer Name', 'Payment Mode', 'Status', 'Taxable Amount', 'CGST', 'SGST', 'IGST', 'Grand Total']
+    ];
+    sales.forEach((s) => {
+      rows.push([
+        s.invoiceNumber,
+        s.invoiceDate ? s.invoiceDate.substring(0, 10) : '',
+        s.customerName,
+        s.paymentMode,
+        s.isCancelled ? 'CANCELLED' : 'ACTIVE',
+        String(s.taxableAmount),
+        String(s.cgstAmount),
+        String(s.sgstAmount),
+        String(s.igstAmount),
+        String(s.grandTotal),
+      ]);
+    });
+    const csvContent = 'data:text/csv;charset=utf-8,' + rows.map((e) => e.join(',')).join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Sales_Register_Apex_Medi_Sales_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const filteredSales = sales.filter((s) =>
     s.invoiceNumber.toLowerCase().includes(search.toLowerCase()) ||
     s.customerName.toLowerCase().includes(search.toLowerCase())
@@ -64,15 +92,24 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice }) => {
           </p>
         </div>
 
-        <div className="relative w-full sm:w-64">
-          <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by invoice or customer..."
-            className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-teal-500"
-          />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCsv}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg border border-slate-300 transition flex items-center gap-1.5 cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            Export CSV
+          </button>
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by invoice or customer..."
+              className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-teal-500"
+            />
+          </div>
         </div>
       </div>
 
