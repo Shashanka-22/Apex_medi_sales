@@ -88,24 +88,81 @@ apiRouter.get('/db/status', async (_req: Request, res: Response) => {
 // ----------------------------------------------------
 // 1. AUTHENTICATION & ACCOUNT ENDPOINTS
 // ----------------------------------------------------
-apiRouter.post('/auth/login', (req: Request, res: Response) => {
+// 1. AUTHENTICATION & ACCOUNT ENDPOINTS
+// ----------------------------------------------------
+async function handleLogin(req: Request, res: Response) {
   try {
     const { email, password } = req.body || {};
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const cleanEmail = email.trim();
-    const user = db.getUserByEmail(cleanEmail);
+    const cleanEmail = String(email).trim();
+    console.log(`[Auth Diagnostic] Processing login request for email: "${cleanEmail}" (IP: ${req.ip})`);
+
+    // Verify authentication secret configuration
+    if (!JWT_SECRET) {
+      console.error('[Auth Diagnostic] CRITICAL: AUTH_SECRET / JWT_SECRET is not configured on the server');
+      return res.status(500).json({ error: 'Authentication configuration error' });
+    }
+
+    // Attempt database lookup: First Neon PostgreSQL, then fallback to local state
+    let user: any = null;
+    let dbSource = 'none';
+
+    if (neonAdapter.isAvailable()) {
+      try {
+        console.log('[Auth Diagnostic] Querying PostgreSQL users table via Neon connection pool...');
+        user = await neonAdapter.getUserByEmail(cleanEmail);
+        if (user) {
+          dbSource = 'Neon PostgreSQL';
+          console.log(`[Auth Diagnostic] Administrator found in Neon PostgreSQL (ID: ${user.id}, Email: ${user.email}, Role: ${user.role})`);
+        } else {
+          console.log(`[Auth Diagnostic] User "${cleanEmail}" not found in Neon PostgreSQL database`);
+        }
+      } catch (dbErr: any) {
+        console.error('[Auth Diagnostic] Neon PostgreSQL query error:', dbErr.message);
+        // Continue to fallback
+      }
+    } else {
+      console.log('[Auth Diagnostic] Neon PostgreSQL not available; using local database engine');
+    }
+
+    // Fallback to local database engine if not found in Neon
     if (!user) {
+      user = db.getUserByEmail(cleanEmail);
+      if (user) {
+        dbSource = 'Local Engine';
+        console.log(`[Auth Diagnostic] User found in local database state (ID: ${user.id}, Email: ${user.email})`);
+      }
+    }
+
+    if (!user) {
+      console.warn(`[Auth Diagnostic] Authentication failed: No account matching "${cleanEmail}"`);
       return res.status(401).json({ error: 'Invalid credentials. Please verify your email and password.' });
     }
 
-    const isValid = bcrypt.compareSync(password, user.passwordHash);
+    // Verify password hash existence
+    if (!user.passwordHash || typeof user.passwordHash !== 'string') {
+      console.error(`[Auth Diagnostic] CRITICAL: User ${user.id} has no valid passwordHash in ${dbSource}`);
+      return res.status(500).json({ error: 'Authentication configuration error' });
+    }
+
+    // Password verification using bcrypt
+    let isValid = false;
+    try {
+      isValid = bcrypt.compareSync(password, user.passwordHash);
+    } catch (bcryptErr: any) {
+      console.error('[Auth Diagnostic] bcrypt comparison threw exception:', bcryptErr.message);
+      return res.status(500).json({ error: 'Password verification error' });
+    }
+
     if (!isValid) {
+      console.warn(`[Auth Diagnostic] Authentication failed: Incorrect password for "${cleanEmail}"`);
       return res.status(401).json({ error: 'Invalid credentials. Please verify your email and password.' });
     }
 
+    // Generate JWT session token
     const token = jwt.sign(
       {
         id: user.id,
@@ -117,15 +174,22 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
       { expiresIn: '7d' }
     );
 
-    db.logAudit({
-      userId: user.id,
-      userName: user.name,
-      action: 'LOGIN',
-      entityType: 'User',
-      entityId: user.id,
-      details: `User ${user.email} logged in successfully`,
-      ipAddress: req.ip,
-    });
+    console.log(`[Auth Diagnostic] Login successful for user "${user.email}" (${user.role}) via ${dbSource}`);
+
+    // Audit logging (non-fatal)
+    try {
+      db.logAudit({
+        userId: user.id,
+        userName: user.name,
+        action: 'LOGIN',
+        entityType: 'User',
+        entityId: user.id,
+        details: `User ${user.email} logged in successfully via ${dbSource}`,
+        ipAddress: req.ip,
+      });
+    } catch (auditErr: any) {
+      console.warn('[Auth Diagnostic] Audit log failed (non-fatal):', auditErr.message);
+    }
 
     return res.json({
       token,
@@ -134,26 +198,46 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        mustChangePassword: user.mustChangePassword,
+        mustChangePassword: !!user.mustChangePassword,
       },
     });
   } catch (err: any) {
-    console.error('Login error:', err);
+    console.error('[Auth Diagnostic] Unhandled server error in handleLogin:', err.message, err.stack);
     return res.status(500).json({ error: 'Internal server error during login' });
   }
-});
+}
 
-apiRouter.get('/auth/me', authenticateToken, (req: any, res: Response) => {
-  const user = db.getUserById(req.user.id);
-  if (!user) return res.status(404).json({ error: 'User not found' });
-  return res.json({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    mustChangePassword: user.mustChangePassword,
-  });
-});
+async function handleGetMe(req: any, res: Response) {
+  try {
+    let user: any = null;
+    if (neonAdapter.isAvailable()) {
+      try {
+        user = await neonAdapter.getUserById(req.user.id);
+      } catch (e: any) {
+        console.warn('[Auth Diagnostic] Neon getUserById failed, falling back:', e?.message);
+      }
+    }
+    if (!user) {
+      user = db.getUserById(req.user.id);
+    }
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    return res.json({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      mustChangePassword: !!user.mustChangePassword,
+    });
+  } catch (err: any) {
+    console.error('[Auth Diagnostic] handleGetMe error:', err.message);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+apiRouter.post('/auth/login', handleLogin);
+apiRouter.post('/login', handleLogin);
+apiRouter.get('/auth/me', authenticateToken, handleGetMe);
+apiRouter.get('/me', authenticateToken, handleGetMe);
 
 apiRouter.post('/auth/change-password', authenticateToken, async (req: any, res: Response) => {
   try {

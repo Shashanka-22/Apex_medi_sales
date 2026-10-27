@@ -1446,6 +1446,65 @@ export class NeonDatabaseAdapter {
     }
   }
 
+  public async getUserByEmail(email: string): Promise<any | null> {
+    if (!this.pool) return null;
+    try {
+      const clean = (email || '').trim().toLowerCase();
+      const res = await this.pool.query(
+        `SELECT id, name, email, password_hash, role, must_change_password, created_at, updated_at
+         FROM users
+         WHERE LOWER(email) = $1
+            OR ($1 IN ('admin@apexmedisales.com', 'apexmedisales@gmail.com')
+                AND LOWER(email) IN ('admin@apexmedisales.com', 'apexmedisales@gmail.com'))
+         LIMIT 1`,
+        [clean]
+      );
+      if (res.rows.length === 0) return null;
+      const r = res.rows[0];
+      return {
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        passwordHash: r.password_hash,
+        role: r.role,
+        mustChangePassword: !!r.must_change_password,
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      };
+    } catch (err: any) {
+      console.error('[Diagnostic] Neon DB: getUserByEmail error:', err.message);
+      throw err;
+    }
+  }
+
+  public async getUserById(id: string): Promise<any | null> {
+    if (!this.pool) return null;
+    try {
+      const res = await this.pool.query(
+        `SELECT id, name, email, password_hash, role, must_change_password, created_at, updated_at
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
+        [id]
+      );
+      if (res.rows.length === 0) return null;
+      const r = res.rows[0];
+      return {
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        passwordHash: r.password_hash,
+        role: r.role,
+        mustChangePassword: !!r.must_change_password,
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      };
+    } catch (err: any) {
+      console.error('[Diagnostic] Neon DB: getUserById error:', err.message);
+      throw err;
+    }
+  }
+
   public async persistProfile(p: any): Promise<void> {
     if (!this.pool) return;
     try {
