@@ -1,5 +1,23 @@
 import { GoogleGenAI } from '@google/genai';
-import { PDFParse } from 'pdf-parse';
+
+async function extractTextFromPdf(fileBuffer: Buffer): Promise<{ text: string; pages: number }> {
+  try {
+    const { createRequire } = await import('node:module');
+    const require = createRequire(process.cwd() + '/package.json');
+    const pdfParse = require('pdf-parse');
+    const data = await pdfParse(fileBuffer);
+    return {
+      text: data?.text || '',
+      pages: data?.numpages || 1,
+    };
+  } catch (err: any) {
+    console.warn('[PDF Text Extractor] Pure Node extractor notice:', err?.message || err);
+    return {
+      text: '',
+      pages: 0,
+    };
+  }
+}
 
 export interface ExtractedMedicineRow {
   serialNumber?: number;
@@ -504,11 +522,7 @@ export async function extractInvoiceWithGemini(
   // STEP 1: If file is a vector/text PDF, extract text directly from the PDF streams
   if (isPdf) {
     try {
-      const parser = new PDFParse(new Uint8Array(fileBuffer));
-      await (parser as any).load();
-      const textResult = await parser.getText();
-      const fullText = textResult.text || '';
-      const pagesInFile = textResult.pages?.length || (parser as any).doc?.numPages || 1;
+      const { text: fullText, pages: pagesInFile } = await extractTextFromPdf(fileBuffer);
 
       if (fullText.trim().length > 100) {
         const headerInfo = extractHeaderAndSummaries(fullText);

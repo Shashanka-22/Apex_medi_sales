@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 import { db } from './db.js';
 import { neonAdapter } from './neon.js';
-import { extractInvoiceWithGemini, getSampleInvoiceData, ExtractedMedicineRow } from './ocr.js';
+import type { ExtractedMedicineRow } from './ocr.js';
 
 dotenv.config();
 
@@ -586,6 +586,7 @@ apiRouter.post('/purchase-import/upload', authenticateToken, upload.single('invo
     const fileBuffer = req.file.buffer;
     const fileName = req.file.originalname;
 
+    const { extractInvoiceWithGemini } = await import('./ocr.js');
     const extracted = await extractInvoiceWithGemini(fileBuffer, mimeType, undefined, fileName);
     const matchedItems = matchExtractedItemsWithInventory(extracted.items);
 
@@ -596,11 +597,13 @@ apiRouter.post('/purchase-import/upload', authenticateToken, upload.single('invo
       fileSize: req.file.size,
     });
   } catch (err: any) {
+    console.error('[Purchase Import] Invoice extraction error:', err?.message || err);
     const cleanError = typeof err?.message === 'string' && err.message.includes('{')
-      ? 'Invoice extraction could not complete with live vision. Please review or select one of the 1-click verified test bills.'
+      ? 'Invoice extraction could not complete. Please check the document format or select one of the verified sample bills.'
       : err?.message || 'Invoice extraction failed.';
-    return res.status(500).json({
+    return res.status(422).json({
       error: cleanError,
+      fileName: req.file?.originalname,
     });
   }
 });
@@ -611,11 +614,13 @@ apiRouter.post('/ocr/upload', authenticateToken, upload.single('invoiceFile'), a
     if (!req.file) {
       return res.status(400).json({ error: 'Please upload an image (JPG/PNG) or PDF invoice' });
     }
+    const { extractInvoiceWithGemini } = await import('./ocr.js');
     const extracted = await extractInvoiceWithGemini(req.file.buffer, req.file.mimetype, undefined, req.file.originalname);
     const matchedItems = matchExtractedItemsWithInventory(extracted.items);
     return res.json({ ...extracted, items: matchedItems });
   } catch (err: any) {
-    return res.status(500).json({ error: 'OCR extraction failed.' });
+    console.error('[OCR Upload] Extraction error:', err?.message || err);
+    return res.status(422).json({ error: err?.message || 'OCR extraction failed.' });
   }
 });
 
@@ -662,9 +667,10 @@ apiRouter.get('/purchase-import/samples', (_req: Request, res: Response) => {
 });
 
 // 3. Load Sample Invoice by ID
-apiRouter.get('/purchase-import/samples/:id', (req: Request, res: Response) => {
+apiRouter.get('/purchase-import/samples/:id', async (req: Request, res: Response) => {
   const sampleId = req.params.id as 'kroyf_distributor' | 'apex_tax_invoice' | 'bharat_mega_stockist';
   try {
+    const { getSampleInvoiceData } = await import('./ocr.js');
     const data = getSampleInvoiceData(sampleId);
     const matchedItems = matchExtractedItemsWithInventory(data.items);
     return res.json({
@@ -677,9 +683,10 @@ apiRouter.get('/purchase-import/samples/:id', (req: Request, res: Response) => {
 });
 
 // Backward compatibility for /api/ocr/samples/:id
-apiRouter.get('/ocr/samples/:id', (req: Request, res: Response) => {
+apiRouter.get('/ocr/samples/:id', async (req: Request, res: Response) => {
   const sampleId = req.params.id as any;
   try {
+    const { getSampleInvoiceData } = await import('./ocr.js');
     const data = getSampleInvoiceData(sampleId);
     const matchedItems = matchExtractedItemsWithInventory(data.items);
     return res.json({ ...data, items: matchedItems });
