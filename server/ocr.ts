@@ -1,22 +1,57 @@
 import { GoogleGenAI } from '@google/genai';
 
 async function extractTextFromPdf(fileBuffer: Buffer): Promise<{ text: string; pages: number }> {
+  // Strategy 1: Pure JavaScript pdf-parse (Node-compatible, no DOM/canvas dependency)
   try {
     const { createRequire } = await import('node:module');
     const require = createRequire(process.cwd() + '/package.json');
     const pdfParse = require('pdf-parse');
     const data = await pdfParse(fileBuffer);
-    return {
-      text: data?.text || '',
-      pages: data?.numpages || 1,
-    };
+    if (data && typeof data.text === 'string' && data.text.trim().length > 0) {
+      return {
+        text: data.text,
+        pages: data.numpages || 1,
+      };
+    }
   } catch (err: any) {
-    console.warn('[PDF Text Extractor] Pure Node extractor notice:', err?.message || err);
-    return {
-      text: '',
-      pages: 0,
-    };
+    console.warn('[PDF Text Extractor] pdf-parse fallback notice:', err?.message || err);
   }
+
+  // Strategy 2: Built-in zlib stream decompression fallback (zero external dependencies)
+  try {
+    const zlib = await import('node:zlib');
+    const content = fileBuffer.toString('binary');
+    const streamRegex = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
+    let match: RegExpExecArray | null;
+    let streamText = '';
+    while ((match = streamRegex.exec(content)) !== null) {
+      const rawStream = Buffer.from(match[1], 'binary');
+      let decompressed = '';
+      try {
+        decompressed = zlib.inflateSync(rawStream).toString('utf-8');
+      } catch {
+        try {
+          decompressed = zlib.unzipSync(rawStream).toString('utf-8');
+        } catch {}
+      }
+      if (decompressed) {
+        streamText += '\n' + decompressed;
+      }
+    }
+    if (streamText.trim().length > 100) {
+      return {
+        text: streamText,
+        pages: 1,
+      };
+    }
+  } catch (streamErr: any) {
+    console.warn('[PDF Text Extractor] Native stream fallback notice:', streamErr?.message || streamErr);
+  }
+
+  return {
+    text: '',
+    pages: 0,
+  };
 }
 
 export interface ExtractedMedicineRow {
@@ -357,6 +392,15 @@ function extractHeaderAndSummaries(fullText: string) {
   };
 }
 
+function splitCombinedFloat(str: string | undefined): [number, number] | [number] {
+  if (!str) return [0];
+  const match = str.match(/^([0-9]+\.[0-9]{2})([0-9]+\.[0-9]{2})$/);
+  if (match) {
+    return [parseFloat(match[1]), parseFloat(match[2])];
+  }
+  return [parseFloat(str) || 0];
+}
+
 /**
  * Parses medicine rows from the structured text layout of Indian pharma invoices
  * (e.g. Sai Radha Pharma / Marg ERP layouts with multi-line columns).
@@ -365,35 +409,135 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
   const lines = fullText.split('\n');
   const itemChunks: string[][] = [];
 
-  let i = 0;
-  while (i < lines.length) {
-    const l = lines[i].trim();
-    if (l.startsWith('Old Mrp')) {
-      const chunk: string[] = [];
-      i++;
-      while (i < lines.length) {
-        const next = lines[i].trim();
-        if (next.startsWith('Old Mrp')) break;
-        if (next.includes('Tot Items') || next.includes('SaleValue:') || next.includes('BANK NAME') || next.includes('Total Tax Amt')) {
-          break;
-        }
-        if (next) chunk.push(next);
-        // Complete when HSN (6-8 digits) is encountered after core lines
-        if (chunk.length >= 5 && /^\d{6,8}$/.test(next)) {
-          i++;
-          break;
-        }
-        i++;
-      }
-      if (chunk.length > 0) itemChunks.push(chunk);
+  let curr: string[] = [];
+  let started = false;
+  for (const l of lines) {
+    const trimmed = l.trim();
+    if (trimmed.startsWith('Old Mrp')) {
+      if (curr.length > 0) itemChunks.push(curr);
+      curr = [];
+      started = true;
       continue;
     }
-    i++;
+    if (started) {
+      if (trimmed.includes('Tot Items') || trimmed.includes('SaleValue:') || trimmed.includes('BANK NAME') || trimmed.includes('Total Tax Amt')) {
+        if (curr.length > 0) itemChunks.push(curr);
+        break;
+      }
+      if (trimmed) curr.push(trimmed);
+    }
   }
 
   const items: ExtractedMedicineRow[] = itemChunks.map((chunk, idx) => {
-    // line 0: MFG RACK QTY\tPACK SCH
-    // e.g. "SUN A16226 2\t10'S 0"
+    // 1. Line-separated structured pharma invoice (e.g. pure PDF stream extraction)
+    if (chunk.length >= 12 && !chunk[0].includes('\t')) {
+      const manufacturer = chunk[0] || '';
+      const rack = chunk[1] || '';
+      const quantity = parseFloat(chunk[2]) || 1;
+      const packing = chunk[3] || '1';
+      const freeQty = parseFloat(chunk[4]) || 0;
+      const sgstAmt = parseFloat(chunk[5]) || 0;
+      const sgstPct = parseFloat(chunk[6]) || 2.5;
+      const cgstAmt = parseFloat(chunk[7]) || 0;
+      const cgstPct = parseFloat(chunk[8]) || 2.5;
+      const lineNetTotal = parseFloat(chunk[9]) || 0;
+      const rawExp = chunk[10] || '';
+      const expiryDate = normalizeExpiryDate(rawExp);
+
+      let pIdx = 11;
+      let mrp = 0;
+      let purchaseRate = 0;
+      const mrpRateSplit = splitCombinedFloat(chunk[pIdx]);
+      if (mrpRateSplit.length === 2) {
+        mrp = mrpRateSplit[0];
+        purchaseRate = mrpRateSplit[1];
+        pIdx++;
+      } else {
+        mrp = mrpRateSplit[0];
+        pIdx++;
+        purchaseRate = parseFloat(chunk[pIdx]) || 0;
+        pIdx++;
+      }
+
+      let discAmt = 0;
+      let discPct = 0;
+      const discSplit = splitCombinedFloat(chunk[pIdx]);
+      if (discSplit.length === 2) {
+        discAmt = discSplit[0];
+        discPct = discSplit[1];
+        pIdx++;
+      } else {
+        discAmt = discSplit[0];
+        pIdx++;
+        discPct = parseFloat(chunk[pIdx]) || 0;
+        pIdx++;
+      }
+
+      const taxableValue = parseFloat(chunk[pIdx]) || 0;
+      pIdx++;
+      const schDisc = parseFloat(chunk[pIdx]) || 0;
+      pIdx++;
+
+      const remaining = chunk.slice(pIdx);
+      let hsnCode = '';
+      let batchNumber = '';
+      let productName = '';
+
+      // Find HSN: look for 8-digit chapter 3004 HSN or last digit code
+      let hsnIdx = -1;
+      for (let r = remaining.length - 1; r >= 0; r--) {
+        if (/^300\d{5}$/.test(remaining[r]) || (/^\d{6,8}$/.test(remaining[r]) && r === remaining.length - 1)) {
+          hsnIdx = r;
+          break;
+        }
+      }
+      if (hsnIdx === -1) {
+        for (let r = remaining.length - 1; r >= 0; r--) {
+          if (/^\d{6,8}$/.test(remaining[r])) {
+            hsnIdx = r;
+            break;
+          }
+        }
+      }
+
+      hsnCode = hsnIdx !== -1 ? remaining[hsnIdx] : '30049099';
+      const beforeHsn = hsnIdx !== -1 ? remaining.slice(0, hsnIdx) : remaining;
+      batchNumber = beforeHsn.length > 0 ? beforeHsn[beforeHsn.length - 1] : 'UNKNOWN';
+      productName = beforeHsn.slice(0, -1).join(' ').replace(/\s+/g, ' ').trim();
+
+      const gross = round2(quantity * purchaseRate);
+      const calcDisc = round2((gross * discPct) / 100);
+      const taxableAmount = taxableValue > 0 ? taxableValue : round2(gross - calcDisc);
+      const amount = lineNetTotal > 0 ? lineNetTotal : round2(taxableAmount + cgstAmt + sgstAmt);
+
+      return {
+        serialNumber: idx + 1,
+        productName: productName || 'Pharmaceutical Medicine',
+        packing,
+        hsnCode: hsnCode || '30049000',
+        manufacturer,
+        rack,
+        batchNumber: batchNumber || 'UNKNOWN',
+        expiryDate,
+        quantity,
+        freeQty,
+        mrp,
+        purchaseRate,
+        discountPercent: discPct,
+        discountAmount: discAmt,
+        gstRate: cgstPct + sgstPct,
+        cgstRate: cgstPct,
+        sgstRate: sgstPct,
+        cgst: cgstAmt,
+        sgst: sgstAmt,
+        taxableAmount,
+        amount,
+        confidence: 'HIGH' as const,
+        uncertainFields: [],
+      };
+    }
+
+    // 2. Tab-separated fallback
     const line0 = chunk[0] || '';
     const parts0 = line0.split(/[\t\s]+/);
     const manufacturer = parts0[0] || '';
@@ -406,7 +550,6 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
     const sgstPct = parseFloat(chunk[2]) || 2.5;
     const cgstAmt = parseFloat(chunk[3]) || 0;
 
-    // chunk[4]: cgstPct amount \t exp mrp price discAmt \t discPct taxable schDisc \t prodPart
     const line4 = chunk[4] || '';
     const tabs = line4.split('\t');
 
@@ -427,7 +570,6 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
 
     const prodPart = (tabs[3] || '').trim();
 
-    // Extra lines (names wrapping, batch number, HSN)
     const extraLines = chunk.slice(5).map((l) => l.trim());
     let hsnCode = '';
     const extraNameParts: string[] = [];
@@ -452,7 +594,6 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
 
     let fullName = (prodPart + (extraNameParts.length > 0 ? ' ' + extraNameParts.join(' ') : '')).trim();
 
-    // If batch was not on separate line, extract from end of fullName
     if (!batchNumber) {
       const tokens = fullName.split(/\s+/);
       const lastToken = tokens[tokens.length - 1];
@@ -469,8 +610,6 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
     }
 
     const gstRate = cgstPct + sgstPct;
-
-    // Deterministic arithmetic calculation
     const gross = round2(quantity * purchaseRate);
     const calcDisc = round2((gross * discountPercent) / 100);
     const taxableAmount = printedTaxable > 0 ? printedTaxable : round2(gross - calcDisc);
@@ -729,16 +868,24 @@ Return ONLY a clean JSON object conforming to this schema without markdown fence
           fileName,
           fileSize: fileBuffer.length,
         };
-      } catch (geminiErr) {
+      } catch (geminiErr: any) {
+        console.error('[OCR/Vision] Vision model extraction attempt failed:', geminiErr?.message || geminiErr);
         // Fall through to unreadable document error
       }
     }
   }
 
-  // STEP 3: If neither native PDF nor Gemini Vision could extract real data, report honest failure!
+  // STEP 3: If neither native text extraction nor Vision AI could extract real data, report honest failure!
   // NEVER RETURN DUMMY/SAMPLE INVOICES!
+  const provider = process.env.OCR_PROVIDER || 'gemini';
+  const hasKey = !!activeKey && activeKey !== 'MY_GEMINI_API_KEY';
+  if (!hasKey) {
+    throw new Error(
+      `Unable to extract medicine items from '${fileName || 'uploaded document'}': Document contains no selectable text layer and OCR provider credentials (${provider.toUpperCase()}_API_KEY or GEMINI_API_KEY) are not configured. Please configure a valid API key or upload a text-based PDF invoice.`
+    );
+  }
   throw new Error(
-    `Unable to reliably extract medicine items from '${fileName || 'uploaded document'}'. The document appears to be a scanned image or photo without an embedded text layer. Please upload a vector/text PDF invoice or ensure OCR keys are configured.`
+    `Unable to extract medicine items from '${fileName || 'uploaded document'}': The document could not be processed by OCR provider '${provider}'. Please ensure the document is clear, oriented right-side up, and that the API key has valid permissions.`
   );
 }
 
