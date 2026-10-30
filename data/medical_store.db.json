@@ -5283,8 +5283,41 @@
       "entityId": "usr_admin_001",
       "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
       "ipAddress": "127.0.0.1",
+      "id": "aud_1793335001429_145",
+      "createdAt": "2026-10-30T04:36:41.429Z"
+    },
+    {
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "id": "aud_1793334985145_330",
+      "createdAt": "2026-10-30T04:36:25.145Z"
+    },
+    {
+      "id": "aud_1793088283172_91",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-27T08:04:43.182Z"
+    },
+    {
       "id": "aud_1793087972040_597",
-      "createdAt": "2026-10-27T07:59:32.040Z"
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-27T07:59:32.147Z"
     },
     {
       "id": "aud_1793087132152_582",

@@ -731,6 +731,23 @@ apiRouter.post('/purchase-import/confirm', authenticateToken, async (req: any, r
       return res.status(400).json({ error: 'Supplier invoice number is mandatory' });
     }
 
+    // Duplicate purchase prevention: prevent accidental double-importing of the same supplier invoice
+    const existingPurchases = db.getPurchases();
+    const isDuplicate = existingPurchases.some(
+      (p) =>
+        p.supplierInvoiceNumber &&
+        p.supplierInvoiceNumber.trim().toLowerCase() === invoiceNumber.trim().toLowerCase() &&
+        (!p.supplierName || !supplierName || p.supplierName.trim().toLowerCase() === (supplierName || '').trim().toLowerCase())
+    );
+
+    if (isDuplicate && !req.body?.allowDuplicate) {
+      return res.status(409).json({
+        error: `Supplier Invoice #${invoiceNumber} has already been imported into inventory. To prevent duplicate stock and financial distortion, this import was halted.`,
+        isDuplicate: true,
+        duplicateInvoiceNumber: invoiceNumber,
+      });
+    }
+
     // A. Verify or auto-create supplier
     let finalSupplierId = supplierId;
     const existingSuppliers = db.getSuppliers();

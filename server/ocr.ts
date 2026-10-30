@@ -1,4 +1,35 @@
 import { GoogleGenAI } from '@google/genai';
+import crypto from 'node:crypto';
+
+interface ExtractionCacheEntry {
+  data: ExtractedInvoiceData;
+  timestamp: number;
+}
+
+const EXTRACTION_CACHE = new Map<string, ExtractionCacheEntry>();
+const CACHE_MAX_ENTRIES = 50;
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function getCachedExtraction(contentHash: string): ExtractedInvoiceData | null {
+  const entry = EXTRACTION_CACHE.get(contentHash);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    EXTRACTION_CACHE.delete(contentHash);
+    return null;
+  }
+  return JSON.parse(JSON.stringify(entry.data));
+}
+
+function setCachedExtraction(contentHash: string, data: ExtractedInvoiceData) {
+  if (EXTRACTION_CACHE.size >= CACHE_MAX_ENTRIES) {
+    const oldestKey = EXTRACTION_CACHE.keys().next().value;
+    if (oldestKey) EXTRACTION_CACHE.delete(oldestKey);
+  }
+  EXTRACTION_CACHE.set(contentHash, {
+    data: JSON.parse(JSON.stringify(data)),
+    timestamp: Date.now(),
+  });
+}
 
 async function extractTextFromPdf(fileBuffer: Buffer): Promise<{ text: string; pages: number }> {
   // Strategy 1: Pure JavaScript pdf-parse (Node-compatible, no DOM/canvas dependency)
@@ -110,6 +141,13 @@ export interface DocumentMeta {
   reconciliationDifference: number;
   incompleteWarning?: string;
   notes?: string;
+  processingTimings?: {
+    pdfReadingMs: number;
+    ocrMs: number;
+    parsingMs: number;
+    reconciliationMs: number;
+    totalMs: number;
+  };
 }
 
 export interface ExtractedInvoiceData {
@@ -404,6 +442,7 @@ function splitCombinedFloat(str: string | undefined): [number, number] | [number
 /**
  * Parses medicine rows from the structured text layout of Indian pharma invoices
  * (e.g. Sai Radha Pharma / Marg ERP layouts with multi-line columns).
+ * Handles multi-page documents seamlessly without breaking on intermediate page footers.
  */
 export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[] {
   const lines = fullText.split('\n');
@@ -420,13 +459,25 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
       continue;
     }
     if (started) {
-      if (trimmed.includes('Tot Items') || trimmed.includes('SaleValue:') || trimmed.includes('BANK NAME') || trimmed.includes('Total Tax Amt')) {
+      // Intermediate or final page footers - pause collection until next 'Old Mrp'
+      if (
+        trimmed.includes('Tot Items') ||
+        trimmed.includes('SaleValue:') ||
+        trimmed.includes('BANK NAME') ||
+        trimmed.includes('Total Tax Amt') ||
+        trimmed.includes('Checked by :') ||
+        trimmed.includes('TAX INVOICE') ||
+        trimmed.includes('SAI RADHA PHARMA')
+      ) {
         if (curr.length > 0) itemChunks.push(curr);
-        break;
+        curr = [];
+        started = false;
+        continue;
       }
       if (trimmed) curr.push(trimmed);
     }
   }
+  if (curr.length > 0) itemChunks.push(curr);
 
   const items: ExtractedMedicineRow[] = itemChunks.map((chunk, idx) => {
     // 1. Line-separated structured pharma invoice (e.g. pure PDF stream extraction)
@@ -444,49 +495,34 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
       const rawExp = chunk[10] || '';
       const expiryDate = normalizeExpiryDate(rawExp);
 
+      // Unpack numeric floats starting at index 11 (handles concatenated floats like '8.716.640.403.00' or '207.50158.10')
       let pIdx = 11;
-      let mrp = 0;
-      let purchaseRate = 0;
-      const mrpRateSplit = splitCombinedFloat(chunk[pIdx]);
-      if (mrpRateSplit.length === 2) {
-        mrp = mrpRateSplit[0];
-        purchaseRate = mrpRateSplit[1];
-        pIdx++;
-      } else {
-        mrp = mrpRateSplit[0];
-        pIdx++;
-        purchaseRate = parseFloat(chunk[pIdx]) || 0;
-        pIdx++;
+      const floatPool: number[] = [];
+      while (pIdx < chunk.length) {
+        const val = chunk[pIdx];
+        const matches = val.match(/\d+\.\d{2}/g);
+        if (matches && matches.length > 0) {
+          for (const m of matches) {
+            floatPool.push(parseFloat(m));
+          }
+          pIdx++;
+        } else {
+          break;
+        }
       }
 
-      let discAmt = 0;
-      let discPct = 0;
-      const discSplit = splitCombinedFloat(chunk[pIdx]);
-      if (discSplit.length === 2) {
-        discAmt = discSplit[0];
-        discPct = discSplit[1];
-        pIdx++;
-      } else {
-        discAmt = discSplit[0];
-        pIdx++;
-        discPct = parseFloat(chunk[pIdx]) || 0;
-        pIdx++;
-      }
-
-      const taxableValue = parseFloat(chunk[pIdx]) || 0;
-      pIdx++;
-      const schDisc = parseFloat(chunk[pIdx]) || 0;
-      pIdx++;
+      const mrp = floatPool[0] || 0;
+      const purchaseRate = floatPool[1] || 0;
+      const discAmt = floatPool[2] || 0;
+      const discPct = floatPool[3] || 0;
+      const taxableValue = floatPool[4] || 0;
 
       const remaining = chunk.slice(pIdx);
-      let hsnCode = '';
-      let batchNumber = '';
-      let productName = '';
 
-      // Find HSN: look for 8-digit chapter 3004 HSN or last digit code
+      // Find HSN code: prefer 8-digit pharma chapter 3004/2106, or last 6-8 digit code
       let hsnIdx = -1;
       for (let r = remaining.length - 1; r >= 0; r--) {
-        if (/^300\d{5}$/.test(remaining[r]) || (/^\d{6,8}$/.test(remaining[r]) && r === remaining.length - 1)) {
+        if (/^(?:300|210)\d{5}$/.test(remaining[r])) {
           hsnIdx = r;
           break;
         }
@@ -500,10 +536,11 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
         }
       }
 
-      hsnCode = hsnIdx !== -1 ? remaining[hsnIdx] : '30049099';
+      const hsnCode = hsnIdx !== -1 ? remaining[hsnIdx] : '30049099';
       const beforeHsn = hsnIdx !== -1 ? remaining.slice(0, hsnIdx) : remaining;
-      batchNumber = beforeHsn.length > 0 ? beforeHsn[beforeHsn.length - 1] : 'UNKNOWN';
-      productName = beforeHsn.slice(0, -1).join(' ').replace(/\s+/g, ' ').trim();
+      const batchNumber = beforeHsn.length > 0 ? beforeHsn[beforeHsn.length - 1] : 'UNKNOWN';
+      const rawProdName = beforeHsn.slice(0, -1).join(' ').replace(/\s+/g, ' ').trim();
+      const productName = rawProdName || (beforeHsn.length > 0 ? beforeHsn[0] : 'Pharmaceutical Medicine');
 
       const gross = round2(quantity * purchaseRate);
       const calcDisc = round2((gross * discPct) / 100);
@@ -524,7 +561,7 @@ export function parsePharmaInvoiceText(fullText: string): ExtractedMedicineRow[]
         mrp,
         purchaseRate,
         discountPercent: discPct,
-        discountAmount: discAmt,
+        discountAmount: discAmt > 0 ? discAmt : calcDisc,
         gstRate: cgstPct + sgstPct,
         cgstRate: cgstPct,
         sgstRate: sgstPct,
@@ -656,16 +693,26 @@ export async function extractInvoiceWithGemini(
   apiKey?: string,
   fileName?: string
 ): Promise<ExtractedInvoiceData> {
+  const contentHash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+  const cached = getCachedExtraction(contentHash);
+  if (cached) {
+    if (fileName) cached.fileName = fileName;
+    return cached;
+  }
+
+  const t0 = Date.now();
   const isPdf = mimeType === 'application/pdf' || (fileName || '').toLowerCase().endsWith('.pdf');
 
   // STEP 1: If file is a vector/text PDF, extract text directly from the PDF streams
   if (isPdf) {
     try {
       const { text: fullText, pages: pagesInFile } = await extractTextFromPdf(fileBuffer);
+      const t1 = Date.now();
 
       if (fullText.trim().length > 100) {
         const headerInfo = extractHeaderAndSummaries(fullText);
         const extractedItems = parsePharmaInvoiceText(fullText);
+        const t2 = Date.now();
 
         if (extractedItems.length > 0) {
           // Calculate extracted sums
@@ -679,19 +726,33 @@ export async function extractInvoiceWithGemini(
 
           // Page & Completeness detection
           const indicatedTotalPages = headerInfo.pageTotal;
-          const isDocumentIncomplete = indicatedTotalPages > pagesInFile;
+          const printedTotItems = headerInfo.printedSummary.printedTotItems || 48;
+          const isDocumentIncomplete = indicatedTotalPages > pagesInFile || (extractedItems.length < printedTotItems && pagesInFile === 1);
           const printedGrandTotal = headerInfo.printedSummary.printedGrandTotal || calculatedGrandTotal;
-          const reconciliationDifference = round2(calculatedGrandTotal - printedGrandTotal);
+          const rawDiff = round2(calculatedGrandTotal - printedGrandTotal);
 
           let reconciliationStatus: DocumentMeta['reconciliationStatus'] = 'VERIFIED';
           let incompleteWarning: string | undefined = undefined;
+          let finalGrandTotal = calculatedGrandTotal;
+          let roundOff = 0.0;
+          let reconciliationDifference = rawDiff;
 
           if (isDocumentIncomplete) {
             reconciliationStatus = 'INCOMPLETE_DOCUMENT';
-            incompleteWarning = `Document is incomplete: Page ${headerInfo.pageCurrent} of ${indicatedTotalPages} uploaded. Only ${extractedItems.length} of ${headerInfo.printedSummary.printedTotItems || 48} items detected on this page. Discrepancy of ₹${Math.abs(reconciliationDifference).toFixed(2)} across missing pages.`;
-          } else if (Math.abs(reconciliationDifference) > 1.5) {
-            reconciliationStatus = 'NEEDS_REVIEW';
+            incompleteWarning = `Document is incomplete: Page ${headerInfo.pageCurrent} of ${indicatedTotalPages} uploaded. Only ${extractedItems.length} of ${printedTotItems} items detected on this page. Discrepancy of ₹${Math.abs(rawDiff).toFixed(2)} across missing pages.`;
+          } else {
+            // Complete document - check round-off (within ±0.50 INR is standard round-off)
+            if (Math.abs(rawDiff) <= 0.50) {
+              roundOff = round2(printedGrandTotal - calculatedGrandTotal);
+              finalGrandTotal = printedGrandTotal;
+              reconciliationDifference = 0.00;
+              reconciliationStatus = 'VERIFIED';
+            } else {
+              reconciliationStatus = 'NEEDS_REVIEW';
+            }
           }
+
+          const t3 = Date.now();
 
           const documentMeta: DocumentMeta = {
             pagesUploaded: pagesInFile,
@@ -702,10 +763,17 @@ export async function extractInvoiceWithGemini(
             reconciliationStatus,
             reconciliationDifference,
             incompleteWarning,
-            notes: `Extracted from uploaded PDF (${pagesInFile} page${pagesInFile > 1 ? 's' : ''} processed)`,
+            notes: `Extracted from uploaded PDF (${pagesInFile} page${pagesInFile > 1 ? 's' : ''} processed, ${extractedItems.length} items parsed)`,
+            processingTimings: {
+              pdfReadingMs: t1 - t0,
+              ocrMs: 0,
+              parsingMs: t2 - t1,
+              reconciliationMs: t3 - t2,
+              totalMs: t3 - t0,
+            },
           };
 
-          return {
+          const invoiceData: ExtractedInvoiceData = {
             supplier: headerInfo.supplier,
             buyer: headerInfo.buyer,
             invoice: headerInfo.invoice,
@@ -717,18 +785,21 @@ export async function extractInvoiceWithGemini(
               sgstAmount,
               igstAmount,
               discountAmount,
-              roundOff: 0.0,
-              grandTotal: calculatedGrandTotal,
+              roundOff,
+              grandTotal: finalGrandTotal,
             },
             printedSummary: headerInfo.printedSummary,
             documentMeta,
             rawTextNotes: isDocumentIncomplete
               ? `Note: Document indicates Page ${headerInfo.pageCurrent} of ${indicatedTotalPages}. Only items on uploaded page 1 were extracted.`
-              : 'Full document extracted successfully.',
+              : 'Full document extracted successfully across all pages.',
             sourceType: 'UPLOADED_FILE',
             fileName,
             fileSize: fileBuffer.length,
           };
+
+          setCachedExtraction(contentHash, invoiceData);
+          return invoiceData;
         }
       }
     } catch (pdfErr) {
