@@ -698,7 +698,7 @@ export const PartiesView: React.FC = () => {
                   required
                   value={partyFormData.name}
                   onChange={(e) => setPartyFormData({ ...partyFormData, name: e.target.value })}
-                  placeholder="e.g. M/s. DIVYAM MEDPLUS"
+                  placeholder="e.g. Sri Rama Medicals / Sai Pharma"
                   className="w-full border border-slate-300 rounded p-2 focus:outline-teal-500 font-semibold"
                 />
               </div>

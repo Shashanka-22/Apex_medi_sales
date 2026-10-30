@@ -186,7 +186,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             ₹{report.totalCustomerReceivables.toLocaleString('en-IN')}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
-            Sundry Debtors (e.g. Divyam Medplus)
+            Outstanding balance from credit customers
           </div>
         </div>
 
@@ -202,7 +202,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             ₹{report.totalSupplierPayables.toLocaleString('en-IN')}
           </div>
           <div className="text-[11px] text-slate-500 mt-1">
-            Sundry Creditors (e.g. Kroyf Labcorp)
+            Pending balance payable to suppliers
           </div>
         </div>
       </div>
@@ -234,32 +234,40 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {report.recentSales.map((sale) => (
-                  <tr key={sale.id} className="hover:bg-slate-50/70 transition">
-                    <td className="p-3 font-mono font-bold text-slate-900">
-                      {sale.invoiceNumber}
-                    </td>
-                    <td className="p-3 text-slate-800 truncate max-w-[140px]">
-                      {sale.customerName}
-                    </td>
-                    <td className="p-3">
-                      <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">
-                        {sale.paymentMode}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right font-mono font-bold text-slate-900">
-                      ₹{sale.grandTotal.toFixed(2)}
-                    </td>
-                    <td className="p-3 text-center">
-                      <button
-                        onClick={() => onViewInvoice(sale)}
-                        className="px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded font-medium text-[11px] transition cursor-pointer"
-                      >
-                        Print A4
-                      </button>
+                {report.recentSales.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center text-slate-400">
+                      No sales invoices recorded yet. Start billing via F2 or "New Sale Bill".
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  report.recentSales.map((sale) => (
+                    <tr key={sale.id} className="hover:bg-slate-50/70 transition">
+                      <td className="p-3 font-mono font-bold text-slate-900">
+                        {sale.invoiceNumber}
+                      </td>
+                      <td className="p-3 text-slate-800 truncate max-w-[140px]">
+                        {sale.customerName}
+                      </td>
+                      <td className="p-3">
+                        <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">
+                          {sale.paymentMode}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-slate-900">
+                        ₹{sale.grandTotal.toFixed(2)}
+                      </td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => onViewInvoice(sale)}
+                          className="px-2 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded font-medium text-[11px] transition cursor-pointer"
+                        >
+                          Print A4
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -289,16 +297,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {report.recentPurchases.map((pur) => (
-                  <tr key={pur.id} className="hover:bg-slate-50/70 transition">
-                    <td className="p-3 font-mono font-bold text-slate-900">{pur.invoiceNumber}</td>
-                    <td className="p-3 font-medium text-slate-800">{pur.supplierName}</td>
-                    <td className="p-3 font-mono text-slate-600">{pur.supplierInvoiceNumber}</td>
-                    <td className="p-3 text-right font-mono font-bold text-slate-900">
-                      ₹{pur.grandTotal.toFixed(2)}
+                {report.recentPurchases.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="p-6 text-center text-slate-400">
+                      No purchase invoices inwarded yet. Upload distributor bills to import inventory.
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  report.recentPurchases.map((pur) => (
+                    <tr key={pur.id} className="hover:bg-slate-50/70 transition">
+                      <td className="p-3 font-mono font-bold text-slate-900">{pur.invoiceNumber}</td>
+                      <td className="p-3 font-medium text-slate-800">{pur.supplierName}</td>
+                      <td className="p-3 font-mono text-slate-600">{pur.supplierInvoiceNumber}</td>
+                      <td className="p-3 text-right font-mono font-bold text-slate-900">
+                        ₹{pur.grandTotal.toFixed(2)}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

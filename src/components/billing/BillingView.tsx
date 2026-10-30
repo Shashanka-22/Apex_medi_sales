@@ -43,9 +43,9 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
   // Billing Header State
   const [invoiceSeries] = useState('MAIN');
   const [invoiceNumber, setInvoiceNumber] = useState('');
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('cust_001');
-  const [customerName, setCustomerName] = useState<string>('M/s. DIVYAM MEDPLUS');
-  const [customerAddress, setCustomerAddress] = useState<string>('Bldg property no130 ground floor, shop no 5 NH 66 bengre-mavinkatta');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [customerName, setCustomerName] = useState<string>('Walk-in Cash Customer');
+  const [customerAddress, setCustomerAddress] = useState<string>('');
   const [customerGstin, setCustomerGstin] = useState<string>('');
   const [customerStateCode, setCustomerStateCode] = useState<string>('29');
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'Card' | 'Credit'>('Cash');

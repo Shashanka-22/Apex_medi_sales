@@ -77,14 +77,12 @@ export const UploadInvoiceView: React.FC<UploadInvoiceViewProps> = ({
   // Initial load
   const loadMasterData = async () => {
     try {
-      const [sups, meds, sampleList] = await Promise.all([
+      const [sups, meds] = await Promise.all([
         api.getSuppliers(),
         api.getMedicines(),
-        api.getPurchaseImportSamples().catch(() => []),
       ]);
       setSuppliers(sups);
       setMedicines(meds);
-      setSamples(sampleList);
     } catch (err) {
       console.error('Error loading master data for purchase import:', err);
     }
@@ -268,26 +266,6 @@ export const UploadInvoiceView: React.FC<UploadInvoiceViewProps> = ({
     }
   };
 
-  // Quick 1-click test invoice load (Demonstration only, labeled clearly as sample preset)
-  const handleLoadSample = async (sampleId: string) => {
-    setLoading(true);
-    setError(null);
-    setSuccessMessage(null);
-    setSuccessSummary(null);
-    setFile(null);
-    setAcknowledgePartialImport(false);
-    setExtractProgressStep('Loading verified reference bill and cross-referencing inventory...');
-
-    try {
-      const data = await api.getPurchaseImportSample(sampleId);
-      ingestInvoicePayload(data, data.sourceType === 'SAMPLE_PRESET' ? undefined : undefined);
-    } catch (err: any) {
-      setError(err.message || 'Failed loading reference invoice sample.');
-    } finally {
-      setLoading(false);
-      setExtractProgressStep(null);
-    }
-  };
 
   // Inline row updates
   const handleUpdateRow = (index: number, field: keyof ExtractedMedicineRow, value: any) => {
@@ -591,85 +569,6 @@ export const UploadInvoiceView: React.FC<UploadInvoiceViewProps> = ({
           </div>
         </div>
 
-        {/* 1-Click Reference Invoices (Clearly demarcated demo presets) */}
-        <div className="pt-4">
-          <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wider mb-2 flex items-center justify-between">
-            <span className="flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5 text-teal-600" />
-              Optional 1-Click Reference Demo Invoices:
-            </span>
-            <span className="text-[10px] text-slate-400 font-normal">
-              Uploading a real file will always parse that exact file
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => handleLoadSample('kroyf_distributor')}
-              className="p-3 rounded-xl border border-teal-200 bg-teal-50/50 hover:bg-teal-100/60 transition text-left cursor-pointer group disabled:opacity-50"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-teal-950 group-hover:text-teal-700">
-                  KROYF LABCORP (7 Items)
-                </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 bg-teal-200/60 text-teal-900 rounded font-semibold">
-                  5% IGST
-                </span>
-              </div>
-              <div className="text-[11px] text-teal-800/80 mt-1">
-                7 Dry Syrups &amp; Drops matching original distributor bill.
-              </div>
-              <div className="text-[10px] text-teal-900 font-mono font-bold mt-1.5">
-                Total: ₹27,575.00
-              </div>
-            </button>
-
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => handleLoadSample('apex_tax_invoice')}
-              className="p-3 rounded-xl border border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100/60 transition text-left cursor-pointer group disabled:opacity-50"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-indigo-950 group-hover:text-indigo-700">
-                  Apex Health (15 Items)
-                </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 bg-indigo-200/60 text-indigo-900 rounded font-semibold">
-                  Mixed GST
-                </span>
-              </div>
-              <div className="text-[11px] text-indigo-800/80 mt-1">
-                15 diverse medicines: Tabs, Caps, Injections, Ointments.
-              </div>
-              <div className="text-[10px] text-indigo-900 font-mono font-bold mt-1.5">
-                Total: ₹77,203.00
-              </div>
-            </button>
-
-            <button
-              type="button"
-              disabled={loading}
-              onClick={() => handleLoadSample('bharat_mega_stockist')}
-              className="p-3 rounded-xl border border-amber-200 bg-amber-50/50 hover:bg-amber-100/60 transition text-left cursor-pointer group disabled:opacity-50"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-amber-950 group-hover:text-amber-700">
-                  Bharat Mega Stockist (35 Items)
-                </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 bg-amber-200/60 text-amber-900 rounded font-semibold">
-                  Bulk Bill
-                </span>
-              </div>
-              <div className="text-[11px] text-amber-800/80 mt-1">
-                35 fast-moving drugs: Dolo, Augmentin, Pan-D, Azithral, etc.
-              </div>
-              <div className="text-[10px] text-amber-900 font-mono font-bold mt-1.5">
-                Total: ₹4,42,568.00
-              </div>
-            </button>
-          </div>
-        </div>
 
         {/* Upload Dropzone */}
         <div className="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4 items-center">

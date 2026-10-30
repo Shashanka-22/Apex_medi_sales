@@ -7,8 +7,8 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
-  const [email, setEmail] = useState('admin@apexmedisales.com');
-  const [password, setPassword] = useState('ApexAdmin@2026');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,12 +26,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleFillDemo = () => {
-    setEmail('admin@apexmedisales.com');
-    setPassword('ApexAdmin@2026');
-    setError(null);
   };
 
   return (
@@ -126,20 +120,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               )}
             </button>
           </form>
-
-          {/* Quick Demo Credentials Helper */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center space-y-2">
-            <div className="text-[11px] text-slate-600">
-              Demo Admin: <span className="font-mono font-semibold">admin@apexmedisales.com</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleFillDemo}
-              className="px-3 py-1 bg-white hover:bg-slate-100 text-teal-800 border border-slate-300 rounded-lg text-[11px] font-bold shadow-2xs transition cursor-pointer"
-            >
-              Fill Demo Admin Credentials
-            </button>
-          </div>
         </div>
       </div>
     </div>

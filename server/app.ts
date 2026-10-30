@@ -706,75 +706,19 @@ apiRouter.post('/ocr/upload', authenticateToken, upload.single('invoiceFile'), a
   }
 });
 
-// 2. List Preloaded Reference Test Invoices
+// 2. Sample Invoices (Clean fresh store - 0 demo presets)
 apiRouter.get('/purchase-import/samples', (_req: Request, res: Response) => {
-  return res.json([
-    {
-      id: 'kroyf_distributor',
-      title: 'KROYF LABCORP Distributor Bill',
-      itemsCount: 7,
-      category: 'Pediatric Syrups & Drops (5% IGST)',
-      supplierName: 'KROYF LABCORP',
-      invoiceNumber: 'OS001230',
-      invoiceDate: '2024-07-30',
-      grandTotal: 27575.00,
-      previewUrl: '/assets/aistudio/image_d925ed9a.png',
-      description: 'Authentic 7-item distributor invoice from reference document.',
-    },
-    {
-      id: 'apex_tax_invoice',
-      title: 'Apex Health Multi-Category Invoice',
-      itemsCount: 15,
-      category: 'Tablets, Capsules, Injections & Ointments (Mixed GST)',
-      supplierName: 'APEX HEALTH DISTRIBUTORS',
-      invoiceNumber: 'INV-2026-8812',
-      invoiceDate: '2026-08-15',
-      grandTotal: 77203.00,
-      previewUrl: '/assets/aistudio/image_0abcdbcd.png',
-      description: '15 diverse pharmaceutical items testing multi-category inventory ingestion.',
-    },
-    {
-      id: 'bharat_mega_stockist',
-      title: 'Bharat Pharma Mega Super-Stockist Bill',
-      itemsCount: 35,
-      category: '35 High-Volume Fast Moving Medicines (Full Bill)',
-      supplierName: 'BHARAT PHARMA SUPER-STOCKIST',
-      invoiceNumber: 'BP-GST-2026/90412',
-      invoiceDate: '2026-08-18',
-      grandTotal: 442568.00,
-      previewUrl: '/assets/aistudio/image_e8b6284a.png',
-      description: 'Large-scale 35+ medicine bulk invoice verifying complete bulk inventory performance.',
-    },
-  ]);
+  return res.json([]);
 });
 
-// 3. Load Sample Invoice by ID
-apiRouter.get('/purchase-import/samples/:id', async (req: Request, res: Response) => {
-  const sampleId = req.params.id as 'kroyf_distributor' | 'apex_tax_invoice' | 'bharat_mega_stockist';
-  try {
-    const { getSampleInvoiceData } = await import('./ocr.js');
-    const data = getSampleInvoiceData(sampleId);
-    const matchedItems = matchExtractedItemsWithInventory(data.items);
-    return res.json({
-      ...data,
-      items: matchedItems,
-    });
-  } catch (err: any) {
-    return res.status(404).json({ error: 'Sample not found' });
-  }
+// 3. Load Sample Invoice by ID (Clean fresh store - 0 demo presets)
+apiRouter.get('/purchase-import/samples/:id', async (_req: Request, res: Response) => {
+  return res.status(404).json({ error: 'Sample not found in fresh store' });
 });
 
 // Backward compatibility for /api/ocr/samples/:id
-apiRouter.get('/ocr/samples/:id', async (req: Request, res: Response) => {
-  const sampleId = req.params.id as any;
-  try {
-    const { getSampleInvoiceData } = await import('./ocr.js');
-    const data = getSampleInvoiceData(sampleId);
-    const matchedItems = matchExtractedItemsWithInventory(data.items);
-    return res.json({ ...data, items: matchedItems });
-  } catch (err: any) {
-    return res.status(404).json({ error: 'Sample not found' });
-  }
+apiRouter.get('/ocr/samples/:id', async (_req: Request, res: Response) => {
+  return res.status(404).json({ error: 'Sample not found in fresh store' });
 });
 
 // 4. Re-calculate matching for edited rows
