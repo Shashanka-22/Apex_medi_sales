@@ -441,6 +441,30 @@ export class NeonDatabaseAdapter {
         );
       `);
 
+      // 17. Durable Purchase Import Jobs (Page-by-page tracking & Vercel serverless safety)
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS purchase_import_jobs (
+          id VARCHAR(64) PRIMARY KEY,
+          file_hash VARCHAR(64) NOT NULL,
+          file_name VARCHAR(255),
+          file_size INTEGER,
+          mime_type VARCHAR(100),
+          status VARCHAR(50) NOT NULL DEFAULT 'queued',
+          stage VARCHAR(100) DEFAULT 'queued',
+          total_pages INTEGER DEFAULT 1,
+          completed_pages INTEGER DEFAULT 0,
+          failed_pages INTEGER DEFAULT 0,
+          extracted_rows_count INTEGER DEFAULT 0,
+          error_message TEXT,
+          pages_data JSONB DEFAULT '[]'::jsonb,
+          final_result JSONB,
+          timings JSONB DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS idx_import_jobs_hash ON purchase_import_jobs(file_hash);
+      `);
+
       await client.query('COMMIT');
 
       // Fetch created table list
@@ -1606,6 +1630,116 @@ export class NeonDatabaseAdapter {
     } catch (err: any) {
       console.error('Neon DB: getPurchaseImports error:', err.message);
       return [];
+    }
+  }
+
+  public async persistImportJob(job: any): Promise<void> {
+    if (!this.pool) return;
+    try {
+      await this.pool.query(
+        `INSERT INTO purchase_import_jobs (
+          id, file_hash, file_name, file_size, mime_type,
+          status, stage, total_pages, completed_pages, failed_pages,
+          extracted_rows_count, error_message, pages_data, final_result,
+          timings, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW())
+        ON CONFLICT (id) DO UPDATE SET
+          status = EXCLUDED.status,
+          stage = EXCLUDED.stage,
+          completed_pages = EXCLUDED.completed_pages,
+          failed_pages = EXCLUDED.failed_pages,
+          extracted_rows_count = EXCLUDED.extracted_rows_count,
+          error_message = EXCLUDED.error_message,
+          pages_data = EXCLUDED.pages_data,
+          final_result = EXCLUDED.final_result,
+          timings = EXCLUDED.timings,
+          updated_at = NOW()`,
+        [
+          job.id,
+          job.fileHash,
+          job.fileName,
+          job.fileSize || 0,
+          job.mimeType || 'application/pdf',
+          job.status,
+          job.stage,
+          job.totalPages || 1,
+          job.completedPages || 0,
+          job.failedPages || 0,
+          job.extractedRowsCount || 0,
+          job.errorMessage || null,
+          JSON.stringify(job.pagesData || []),
+          job.finalResult ? JSON.stringify(job.finalResult) : null,
+          JSON.stringify(job.timings || {}),
+          job.createdAt || new Date().toISOString(),
+        ]
+      );
+    } catch (err: any) {
+      console.error('Neon DB: persistImportJob error:', err.message);
+    }
+  }
+
+  public async getImportJob(id: string): Promise<any | null> {
+    if (!this.pool) return null;
+    try {
+      const res = await this.pool.query('SELECT * FROM purchase_import_jobs WHERE id = $1', [id]);
+      if (res.rows.length === 0) return null;
+      const r = res.rows[0];
+      return {
+        id: r.id,
+        fileHash: r.file_hash,
+        fileName: r.file_name,
+        fileSize: Number(r.file_size || 0),
+        mimeType: r.mime_type,
+        status: r.status,
+        stage: r.stage,
+        totalPages: Number(r.total_pages || 1),
+        completedPages: Number(r.completed_pages || 0),
+        failedPages: Number(r.failed_pages || 0),
+        extractedRowsCount: Number(r.extracted_rows_count || 0),
+        errorMessage: r.error_message,
+        pagesData: typeof r.pages_data === 'string' ? JSON.parse(r.pages_data) : (r.pages_data || []),
+        finalResult: typeof r.final_result === 'string' ? JSON.parse(r.final_result) : r.final_result,
+        timings: typeof r.timings === 'string' ? JSON.parse(r.timings) : (r.timings || {}),
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      };
+    } catch (err: any) {
+      console.error('Neon DB: getImportJob error:', err.message);
+      return null;
+    }
+  }
+
+  public async getImportJobByHash(fileHash: string): Promise<any | null> {
+    if (!this.pool) return null;
+    try {
+      const res = await this.pool.query(
+        "SELECT * FROM purchase_import_jobs WHERE file_hash = $1 AND status = 'completed' ORDER BY updated_at DESC LIMIT 1",
+        [fileHash]
+      );
+      if (res.rows.length === 0) return null;
+      const r = res.rows[0];
+      return {
+        id: r.id,
+        fileHash: r.file_hash,
+        fileName: r.file_name,
+        fileSize: Number(r.file_size || 0),
+        mimeType: r.mime_type,
+        status: r.status,
+        stage: r.stage,
+        totalPages: Number(r.total_pages || 1),
+        completedPages: Number(r.completed_pages || 0),
+        failedPages: Number(r.failed_pages || 0),
+        extractedRowsCount: Number(r.extracted_rows_count || 0),
+        errorMessage: r.error_message,
+        pagesData: typeof r.pages_data === 'string' ? JSON.parse(r.pages_data) : (r.pages_data || []),
+        finalResult: typeof r.final_result === 'string' ? JSON.parse(r.final_result) : r.final_result,
+        timings: typeof r.timings === 'string' ? JSON.parse(r.timings) : (r.timings || {}),
+        createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+      };
+    } catch (err: any) {
+      console.error('Neon DB: getImportJobByHash error:', err.message);
+      return null;
     }
   }
 }

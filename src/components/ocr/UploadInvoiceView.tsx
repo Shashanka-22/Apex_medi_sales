@@ -189,7 +189,7 @@ export const UploadInvoiceView: React.FC<UploadInvoiceViewProps> = ({
     }
   };
 
-  // Upload and Extract with Real OCR & PDF text extraction
+  // Upload and Extract with Real OCR & Chunked/Durable PDF Pipeline
   const handleExtractUploadedFile = async () => {
     if (!file) {
       setError('Please choose a supplier purchase bill file (JPG, PNG, or PDF).');
@@ -201,17 +201,67 @@ export const UploadInvoiceView: React.FC<UploadInvoiceViewProps> = ({
     setSuccessMessage(null);
     setSuccessSummary(null);
     setAcknowledgePartialImport(false);
-    setExtractProgressStep('Reading uploaded document bytes & detecting structure...');
+    setExtractProgressStep('Uploading invoice document & analyzing layout...');
+
+    const uploadStart = Date.now();
 
     try {
-      setTimeout(() => setExtractProgressStep('Extracting table columns, line items, batches & tax schedules...'), 800);
-      setTimeout(() => setExtractProgressStep('Performing deterministic financial reconciliation...'), 1600);
+      // Step 1: Start durable import job (or retrieve cached instant result)
+      const job = await api.startPurchaseImportJob(file, Date.now() - uploadStart);
 
-      const data = await api.uploadPurchaseBill(file);
+      if (job.cached || job.status === 'completed') {
+        setExtractProgressStep('Retrieved verified document results from database...');
+        const data = await api.getPurchaseImportJobResult(job.jobId);
+        ingestInvoicePayload(data);
+        return;
+      }
+
+      // Step 2: Process pages with max 3 concurrent tasks to prevent serverless timeouts
+      const totalPages = Math.max(job.totalPages || 1, 1);
+      const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1);
+      const chunkSize = 3;
+      let completedPagesCount = 0;
+      let totalExtractedItems = 0;
+
+      for (let i = 0; i < pageNumbers.length; i += chunkSize) {
+        const chunk = pageNumbers.slice(i, i + chunkSize);
+        setExtractProgressStep(
+          `Extracting medicine line items from Page ${chunk.join(', ')} of ${totalPages}...`
+        );
+
+        const results = await Promise.all(
+          chunk.map((pg) => api.processPurchaseImportPage(job.jobId, pg))
+        );
+
+        for (const res of results) {
+          completedPagesCount++;
+          totalExtractedItems += res.itemsCount || 0;
+        }
+
+        setExtractProgressStep(
+          `Processed ${completedPagesCount} of ${totalPages} pages (${totalExtractedItems} medicines parsed)...`
+        );
+      }
+
+      // Step 3: Financial reconciliation and item inventory cross-matching
+      setExtractProgressStep('Performing deterministic financial reconciliation & inventory match...');
+      const data = await api.getPurchaseImportJobResult(job.jobId);
       ingestInvoicePayload(data);
     } catch (err: any) {
-      console.error('Invoice OCR error:', err);
-      setError(err.message || 'Invoice OCR extraction failed. Please ensure the document is clear and readable.');
+      console.warn('Chunked import pipeline notice, trying direct fallback:', err?.message || err);
+      try {
+        // Fallback to synchronous direct endpoint
+        setExtractProgressStep('Finalizing line item extraction and tax schedules...');
+        const fallbackData = await api.uploadPurchaseBill(file);
+        ingestInvoicePayload(fallbackData);
+      } catch (fallbackErr: any) {
+        console.error('Invoice OCR error:', fallbackErr);
+        setError(
+          fallbackErr.message ||
+            err.message ||
+            'Invoice OCR extraction failed. Please ensure the document is clear and readable.'
+        );
+      }
     } finally {
       setLoading(false);
       setExtractProgressStep(null);

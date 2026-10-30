@@ -596,6 +596,50 @@ class ApiService {
     return this.request(`/api/purchase-import/samples/${id}`);
   }
 
+  async startPurchaseImportJob(file: File, uploadDurationMs?: number): Promise<{
+    jobId: string;
+    fileHash: string;
+    fileName: string;
+    fileSize: number;
+    totalPages: number;
+    status: string;
+    stage: string;
+    cached: boolean;
+  }> {
+    const formData = new FormData();
+    formData.append('invoiceFile', file);
+    if (uploadDurationMs) {
+      formData.append('uploadDurationMs', String(uploadDurationMs));
+    }
+    return this.request('/api/purchase-import/start', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async processPurchaseImportPage(jobId: string, pageNumber: number): Promise<{
+    jobId: string;
+    pageNumber: number;
+    status: string;
+    itemsCount: number;
+    completedPages: number;
+    totalPages: number;
+    error?: string;
+  }> {
+    return this.request('/api/purchase-import/process-page', {
+      method: 'POST',
+      body: JSON.stringify({ jobId, pageNumber }),
+    });
+  }
+
+  async getPurchaseImportJobStatus(jobId: string): Promise<any> {
+    return this.request(`/api/purchase-import/status/${jobId}`);
+  }
+
+  async getPurchaseImportJobResult(jobId: string): Promise<ExtractedInvoiceData> {
+    return this.request(`/api/purchase-import/result/${jobId}`);
+  }
+
   async uploadPurchaseBill(file: File): Promise<ExtractedInvoiceData> {
     const formData = new FormData();
     formData.append('invoiceFile', file);

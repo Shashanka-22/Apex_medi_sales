@@ -1418,6 +1418,48 @@ class DatabaseEngine {
     return imp;
   }
 
+  // --- Purchase Import Jobs (Durable, page-by-page state for Vercel & Neon) ---
+  private importJobs = new Map<string, any>();
+
+  public async createImportJob(job: any): Promise<any> {
+    this.importJobs.set(job.id, job);
+    await neonAdapter.persistImportJob(job);
+    return job;
+  }
+
+  public async getImportJob(id: string): Promise<any | null> {
+    if (this.importJobs.has(id)) {
+      return this.importJobs.get(id);
+    }
+    const fromNeon = await neonAdapter.getImportJob(id);
+    if (fromNeon) {
+      this.importJobs.set(id, fromNeon);
+      return fromNeon;
+    }
+    return null;
+  }
+
+  public async getImportJobByHash(fileHash: string): Promise<any | null> {
+    for (const job of this.importJobs.values()) {
+      if (job.fileHash === fileHash && job.status === 'completed') {
+        return job;
+      }
+    }
+    const fromNeon = await neonAdapter.getImportJobByHash(fileHash);
+    if (fromNeon) {
+      this.importJobs.set(fromNeon.id, fromNeon);
+      return fromNeon;
+    }
+    return null;
+  }
+
+  public async updateImportJob(job: any): Promise<any> {
+    job.updatedAt = new Date().toISOString();
+    this.importJobs.set(job.id, job);
+    await neonAdapter.persistImportJob(job);
+    return job;
+  }
+
   // --- Write Operations with Persistence ---
   public async updateUser(userId: string, updates: Partial<User>): Promise<User> {
     const state = this.getState();

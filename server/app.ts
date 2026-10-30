@@ -575,7 +575,89 @@ function matchExtractedItemsWithInventory(items: ExtractedMedicineRow[]): Extrac
   });
 }
 
-// 1. Upload Invoice and Extract All Medicines with Vision AI
+// 1. Start Purchase Import Job (Chunked / Page-by-page pipeline for Vercel & serverless)
+apiRouter.post('/purchase-import/start', authenticateToken, upload.single('invoiceFile'), async (req: any, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'Please upload an invoice file (JPG, PNG, or PDF)' });
+    }
+
+    const { startPurchaseImportJob } = await import('./ocr.js');
+    const job = await startPurchaseImportJob({
+      fileBuffer: req.file.buffer,
+      fileName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      uploadDurationMs: req.body?.uploadDurationMs ? Number(req.body.uploadDurationMs) : undefined,
+    });
+
+    return res.json({
+      jobId: job.id,
+      fileHash: job.fileHash,
+      fileName: job.fileName,
+      fileSize: job.fileSize,
+      totalPages: job.totalPages,
+      status: job.status,
+      stage: job.stage,
+      cached: job.status === 'completed',
+    });
+  } catch (err: any) {
+    console.error('[Purchase Import Start] Error:', err?.message || err);
+    return res.status(422).json({ error: err?.message || 'Failed to start import job' });
+  }
+});
+
+// Process individual page (isolated execution under 1s, preventing Vercel timeout)
+apiRouter.post('/purchase-import/process-page', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { jobId, pageNumber } = req.body || {};
+    if (!jobId || !pageNumber) {
+      return res.status(400).json({ error: 'jobId and pageNumber are required' });
+    }
+
+    const { processPurchaseImportPage } = await import('./ocr.js');
+    const result = await processPurchaseImportPage({
+      jobId: String(jobId),
+      pageNumber: Number(pageNumber),
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    console.error('[Purchase Import Process Page] Error:', err?.message || err);
+    return res.status(422).json({ error: err?.message || 'Failed to process page' });
+  }
+});
+
+// Check job status & timing metrics
+apiRouter.get('/purchase-import/status/:jobId', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const { getPurchaseImportJobStatus } = await import('./ocr.js');
+    const status = await getPurchaseImportJobStatus(jobId);
+    return res.json(status);
+  } catch (err: any) {
+    return res.status(404).json({ error: err?.message || 'Job not found' });
+  }
+});
+
+// Retrieve final reconciled extraction result
+apiRouter.get('/purchase-import/result/:jobId', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const { getPurchaseImportJobResult } = await import('./ocr.js');
+    const result = await getPurchaseImportJobResult(jobId);
+    const matchedItems = matchExtractedItemsWithInventory(result.items);
+
+    return res.json({
+      ...result,
+      items: matchedItems,
+    });
+  } catch (err: any) {
+    console.error('[Purchase Import Result] Error:', err?.message || err);
+    return res.status(422).json({ error: err?.message || 'Failed to get import result' });
+  }
+});
+
+// Synchronous single-request fallback upload
 apiRouter.post('/purchase-import/upload', authenticateToken, upload.single('invoiceFile'), async (req: any, res: Response) => {
   try {
     if (!req.file) {

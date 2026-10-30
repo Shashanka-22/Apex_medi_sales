@@ -5276,6 +5276,7 @@
   ],
   "auditLogs": [
     {
+      "id": "aud_1793335001429_145",
       "userId": "usr_admin_001",
       "userName": "Apex Admin",
       "action": "LOGIN",
@@ -5283,10 +5284,10 @@
       "entityId": "usr_admin_001",
       "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
       "ipAddress": "127.0.0.1",
-      "id": "aud_1793335001429_145",
-      "createdAt": "2026-10-30T04:36:41.429Z"
+      "createdAt": "2026-10-30T04:36:41.525Z"
     },
     {
+      "id": "aud_1793334985145_330",
       "userId": "usr_admin_001",
       "userName": "Apex Admin",
       "action": "LOGIN",
@@ -5294,8 +5295,7 @@
       "entityId": "usr_admin_001",
       "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
       "ipAddress": "127.0.0.1",
-      "id": "aud_1793334985145_330",
-      "createdAt": "2026-10-30T04:36:25.145Z"
+      "createdAt": "2026-10-30T04:36:25.240Z"
     },
     {
       "id": "aud_1793088283172_91",
