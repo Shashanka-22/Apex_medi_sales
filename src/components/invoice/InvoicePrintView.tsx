@@ -377,7 +377,7 @@ export const InvoicePrintView: React.FC<InvoicePrintViewProps> = ({ sale, profil
               {/* Right Column: Invoice Totals & Summary */}
               <div className="col-span-5 pl-2 space-y-1 text-[11px] font-mono">
                 <div className="flex justify-between text-slate-700">
-                  <span>SUB TOTAL:</span>
+                  <span>TAXABLE AMOUNT:</span>
                   <span className="font-semibold text-slate-900">₹{sale.taxableAmount.toFixed(2)}</span>
                 </div>
                 {sale.discountAmount > 0 && (

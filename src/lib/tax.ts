@@ -12,6 +12,7 @@ export interface TaxLineInput {
   discountAmount?: number;
   gstRate: number; // 0, 5, 12, 18, 28
   freeQty?: number;
+  isTaxInclusive?: boolean;
 }
 
 export interface TaxLineResult {
@@ -66,7 +67,9 @@ export function round2(num: number): number {
 }
 
 /**
- * Calculates a single line item's taxes and amounts
+ * Calculates a single line item's taxes and amounts.
+ * Supports both GST-inclusive pricing (standard for Indian Retail Pharma POS)
+ * and tax-exclusive pricing (standard for B2B supplier invoices).
  */
 export function calculateLineTax(
   input: TaxLineInput,
@@ -75,7 +78,59 @@ export function calculateLineTax(
   const qty = Math.max(0, Number(input.quantity) || 0);
   const rate = Math.max(0, Number(input.rate) || 0);
   const gstRate = Math.max(0, Number(input.gstRate) || 0);
+  const isTaxInclusive = !!input.isTaxInclusive;
 
+  if (isTaxInclusive) {
+    // Retail Pharma POS: Rate is the customer-facing GST-inclusive price (MRP)
+    const grossAmount = round2(qty * rate);
+    let discountAmount = 0;
+    if (input.discountPercent && input.discountPercent > 0) {
+      discountAmount = round2((grossAmount * input.discountPercent) / 100);
+    } else if (input.discountAmount && input.discountAmount > 0) {
+      discountAmount = round2(Math.min(grossAmount, input.discountAmount));
+    }
+
+    const netInclusive = round2(Math.max(0, grossAmount - discountAmount));
+    const gstFactor = 1 + gstRate / 100;
+    const taxableAmount = round2(netInclusive / gstFactor);
+    const totalGst = round2(netInclusive - taxableAmount);
+
+    let cgstRate = 0;
+    let sgstRate = 0;
+    let igstRate = 0;
+    let cgstAmount = 0;
+    let sgstAmount = 0;
+    let igstAmount = 0;
+
+    if (isInterState) {
+      igstRate = gstRate;
+      igstAmount = totalGst;
+    } else {
+      cgstRate = gstRate / 2;
+      sgstRate = gstRate / 2;
+      cgstAmount = round2(totalGst / 2);
+      sgstAmount = round2(totalGst - cgstAmount); // Avoid half-cent discrepancy
+    }
+
+    const lineTotal = round2(taxableAmount + totalGst); // exactly equals netInclusive
+
+    return {
+      grossAmount,
+      discountAmount,
+      taxableAmount,
+      gstRate,
+      cgstRate,
+      sgstRate,
+      igstRate,
+      cgstAmount,
+      sgstAmount,
+      igstAmount,
+      totalGst,
+      lineTotal,
+    };
+  }
+
+  // Tax-Exclusive (e.g. Purchases & B2B distributor inward bills)
   const grossAmount = round2(qty * rate);
 
   let discountAmount = 0;
@@ -133,12 +188,14 @@ export function calculateInvoiceTotals(
     billDiscount?: number;
     additionalCharges?: number;
     roundOffPreference?: boolean;
+    isTaxInclusive?: boolean;
   } = {}
 ): InvoiceTotalsResult {
   const isInterState = !!options.isInterState;
   const billDiscount = Math.max(0, Number(options.billDiscount) || 0);
   const additionalCharges = Math.max(0, Number(options.additionalCharges) || 0);
   const roundOffPref = options.roundOffPreference !== false;
+  const isTaxInclusive = !!options.isTaxInclusive;
 
   let totalQuantity = 0;
   let totalFreeQuantity = 0;
@@ -160,7 +217,13 @@ export function calculateInvoiceTotals(
     totalQuantity += Number(item.quantity) || 0;
     totalFreeQuantity += Number(item.freeQty) || 0;
 
-    const line = calculateLineTax(item, isInterState);
+    const line = calculateLineTax(
+      {
+        ...item,
+        isTaxInclusive: item.isTaxInclusive !== undefined ? item.isTaxInclusive : isTaxInclusive,
+      },
+      isInterState
+    );
     grossAmount = round2(grossAmount + line.grossAmount);
     itemDiscountTotal = round2(itemDiscountTotal + line.discountAmount);
     taxableAmount = round2(taxableAmount + line.taxableAmount);

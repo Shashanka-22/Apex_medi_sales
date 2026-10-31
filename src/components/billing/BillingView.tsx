@@ -136,7 +136,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
     if (activeBatches.length > 0) {
       const fefoBatch = activeBatches[0];
       setSelectedBatchId(fefoBatch.id);
-      setInputRate(fefoBatch.sellingRate);
+      setInputRate(fefoBatch.mrp > 0 ? fefoBatch.mrp : fefoBatch.sellingRate);
     } else {
       setSelectedBatchId('');
       setInputRate(0);
@@ -151,7 +151,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
     setSelectedBatchId(batchId);
     const b = eligibleBatches.find((x) => x.id === batchId);
     if (b) {
-      setInputRate(b.sellingRate);
+      setInputRate(b.mrp > 0 ? b.mrp : b.sellingRate);
     }
   };
 
@@ -194,15 +194,21 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
     }
 
     const isInterState = customerStateCode !== (profile.stateCode || '29');
-    const gross = round2(inputQty * inputRate);
-    const disAmt = round2((gross * inputDiscount) / 100);
-    const taxable = round2(gross - disAmt);
-    const totalGst = round2((taxable * batch.gstRate) / 100);
+
+    // MRP is GST-INCLUSIVE customer price. inputRate defaults to batch.mrp
+    const grossInclusive = round2(inputQty * inputRate);
+    const disAmt = inputDiscount > 0 ? round2((grossInclusive * inputDiscount) / 100) : 0;
+    const netInclusive = round2(grossInclusive - disAmt);
+
+    // Taxable Value = Net Inclusive / (1 + GST Rate / 100)
+    const gstFactor = 1 + (Number(batch.gstRate) || 0) / 100;
+    const taxable = round2(netInclusive / gstFactor);
+    const totalGst = round2(netInclusive - taxable);
 
     const cgst = isInterState ? 0 : round2(totalGst / 2);
     const sgst = isInterState ? 0 : round2(totalGst - cgst);
     const igst = isInterState ? totalGst : 0;
-    const lineTotal = round2(taxable + totalGst);
+    const lineTotal = round2(taxable + totalGst); // exactly equals netInclusive (e.g. ₹312.00)
 
     const newItem: BillingItem = {
       id: `item_${Date.now()}`,
@@ -250,11 +256,13 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
       discountPercent: i.discountPercent,
       gstRate: i.gstRate,
       freeQty: i.freeQty,
+      isTaxInclusive: true,
     })),
     {
       isInterState,
       billDiscount,
       roundOffPreference: true,
+      isTaxInclusive: true,
     }
   );
 
@@ -578,7 +586,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
 
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                    Selling Rate (₹)
+                    Rate (₹ MRP, GST-Incl)
                   </label>
                   <input
                     type="number"

@@ -947,7 +947,7 @@ class DatabaseEngine {
           expiryDate: item.expiryDate,
           purchaseRate: item.purchaseRate,
           mrp: item.mrp,
-          sellingRate: Math.round(item.mrp * 0.85 * 100) / 100,
+          sellingRate: item.mrp,
           initialQty: totalQtyToAdd,
           currentQty: totalQtyToAdd,
           freeQty: item.freeQty || 0,

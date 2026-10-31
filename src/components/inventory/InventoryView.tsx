@@ -443,8 +443,8 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigateToUpload
                                       <th className="py-1.5 px-2">Batch No</th>
                                       <th className="py-1.5 px-2">Expiry Date</th>
                                       <th className="py-1.5 px-2 text-right">Cost Rate</th>
-                                      <th className="py-1.5 px-2 text-right">MRP</th>
-                                      <th className="py-1.5 px-2 text-right">Selling Rate</th>
+                                      <th className="py-1.5 px-2 text-right">MRP (GST-Incl)</th>
+                                      <th className="py-1.5 px-2 text-right">Selling Rate (₹)</th>
                                       <th className="py-1.5 px-2 text-right">Available Qty</th>
                                       <th className="py-1.5 px-2 text-center">Status</th>
                                       <th className="py-1.5 px-2 text-center">Action</th>
@@ -697,17 +697,24 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigateToUpload
                   />
                 </div>
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">MRP (₹)</label>
+                  <label className="block font-medium text-slate-700 mb-1">MRP (₹, GST-Incl)</label>
                   <input
                     type="number"
                     step="0.01"
                     value={newBatch.mrp}
-                    onChange={(e) => setNewBatch({ ...newBatch, mrp: parseFloat(e.target.value) || 0 })}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
+                      setNewBatch({
+                        ...newBatch,
+                        mrp: val,
+                        sellingRate: newBatch.sellingRate === 0 || newBatch.sellingRate === newBatch.mrp ? val : newBatch.sellingRate,
+                      });
+                    }}
                     className="w-full border border-slate-300 rounded-lg p-2 focus:outline-teal-500 font-mono"
                   />
                 </div>
                 <div>
-                  <label className="block font-medium text-slate-700 mb-1">Selling Rate</label>
+                  <label className="block font-medium text-slate-700 mb-1">Customer Price (₹)</label>
                   <input
                     type="number"
                     step="0.01"

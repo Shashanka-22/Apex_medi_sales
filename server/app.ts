@@ -1054,7 +1054,7 @@ apiRouter.get('/reports/dashboard', (_req: Request, res: Response) => {
 
   for (const b of batches) {
     const cost = b.purchaseRate * b.currentQty;
-    const sell = b.sellingRate * b.currentQty;
+    const sell = (b.mrp && b.mrp > 0 ? b.mrp : b.sellingRate) * b.currentQty;
     totalInventoryValue += cost;
     totalSellingValue += sell;
 
