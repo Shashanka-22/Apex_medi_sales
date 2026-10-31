@@ -605,6 +605,8 @@ class ApiService {
     status: string;
     stage: string;
     cached: boolean;
+    extractedRowsCount?: number;
+    errorMessage?: string;
   }> {
     const formData = new FormData();
     formData.append('invoiceFile', file);

@@ -171,6 +171,14 @@ export const UploadInvoiceView: React.FC<UploadInvoiceViewProps> = ({
       };
     });
 
+    if (enrichedRows.length === 0) {
+      setRows([]);
+      setSelectedRowIds(new Set());
+      setSuccessMessage(null);
+      setError('Extraction Failed: No medicine items could be identified. Please retry or check the uploaded document.');
+      return;
+    }
+
     setRows(enrichedRows);
 
     // Select all rows by default
@@ -206,6 +214,13 @@ export const UploadInvoiceView: React.FC<UploadInvoiceViewProps> = ({
     try {
       // Step 1: Start durable import job (or retrieve cached instant result)
       const job = await api.startPurchaseImportJob(file, Date.now() - uploadStart);
+
+      if (job.status === 'failed') {
+        throw new Error(
+          job.errorMessage ||
+            'Extraction Failed: No medicine items could be identified. Please retry or check the uploaded document.'
+        );
+      }
 
       if (job.cached || job.status === 'completed') {
         setExtractProgressStep('Retrieved verified document results from database...');

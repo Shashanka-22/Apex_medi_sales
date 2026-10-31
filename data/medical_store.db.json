@@ -4,23 +4,23 @@
       "id": "usr_admin_001",
       "name": "Apex Admin",
       "email": "apexmedisales@gmail.com",
-      "passwordHash": "$2b$10$xbCkqregTWdKbrZvXViQTeJYVxHNqkIMvi2pnWFP4eDIUcunlpMVy",
+      "passwordHash": "$2b$10$IgNmk8GamjaGNTbjyzahRO1ZXP1mM7LUNjpXZpy9/3rOBjE.HN38C",
       "role": "ADMIN",
       "mustChangePassword": false,
       "createdAt": "2026-10-25T06:24:16.559Z",
-      "updatedAt": "2026-10-25T06:24:16.559Z"
+      "updatedAt": "2026-10-30T09:42:14.791Z"
     }
   ],
   "businessProfile": {
     "id": "biz_001",
     "storeName": "APEX MEDI SALES",
-    "ownerName": "Shashank ",
+    "ownerName": "Uttam Naik",
     "address": "DOOR NO.-VI/143, ALVEKODI SHIRALI ROAD, BHATKAL, SHIRALI",
     "city": "UTTARA KANNADA",
     "state": "Karnataka",
     "stateCode": "29",
     "pincode": "581354",
-    "phone": "9113917343",
+    "phone": "9482588343",
     "email": "apexmedisales@gmail.com",
     "gstin": "29BZWWPN5791F1ZE",
     "dlNo1": "KA-KW1-299954",
@@ -35,7 +35,7 @@
     "upiId": "9113917343@upi",
     "roundOffPreference": true,
     "createdAt": "2026-10-25T06:24:16.559Z",
-    "updatedAt": "2026-10-26T08:01:15.735Z"
+    "updatedAt": "2026-10-30T09:44:54.675Z"
   },
   "medicines": [],
   "batches": [],
@@ -47,6 +47,161 @@
   "customerLedgers": [],
   "supplierLedgers": [],
   "stockMovements": [],
-  "auditLogs": [],
+  "auditLogs": [
+    {
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "id": "aud_1793438639952_415",
+      "createdAt": "2026-10-31T09:23:59.952Z"
+    },
+    {
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "id": "aud_1793438617589_775",
+      "createdAt": "2026-10-31T09:23:37.589Z"
+    },
+    {
+      "id": "aud_1793367857029_908",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-30T13:44:17.037Z"
+    },
+    {
+      "id": "aud_1793362066625_767",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-30T12:07:46.635Z"
+    },
+    {
+      "id": "aud_1793353494686_685",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "UPDATE_PROFILE",
+      "entityType": "BusinessProfile",
+      "entityId": "biz_001",
+      "details": "Updated business details & billing parameters",
+      "ipAddress": null,
+      "createdAt": "2026-10-30T09:44:54.694Z"
+    },
+    {
+      "id": "aud_1793353453816_671",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-30T09:44:13.824Z"
+    },
+    {
+      "id": "aud_1793353406119_243",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-30T09:43:26.127Z"
+    },
+    {
+      "id": "aud_1793353364684_18",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-30T09:42:44.692Z"
+    },
+    {
+      "id": "aud_1793353334803_826",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "CHANGE_PASSWORD",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "Password was changed securely",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-30T09:42:14.811Z"
+    },
+    {
+      "id": "aud_1793353294362_281",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "LOGIN",
+      "entityType": "User",
+      "entityId": "usr_admin_001",
+      "details": "User apexmedisales@gmail.com logged in successfully via Neon PostgreSQL",
+      "ipAddress": "127.0.0.1",
+      "createdAt": "2026-10-30T09:41:34.370Z"
+    },
+    {
+      "id": "aud_1793352970867_589",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "UPDATE_PROFILE",
+      "entityType": "BusinessProfile",
+      "entityId": "biz_001",
+      "details": "Updated business details & billing parameters",
+      "ipAddress": null,
+      "createdAt": "2026-10-30T09:36:10.874Z"
+    },
+    {
+      "id": "aud_1793352865669_237",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "UPDATE_PROFILE",
+      "entityType": "BusinessProfile",
+      "entityId": "biz_001",
+      "details": "Updated business details & billing parameters",
+      "ipAddress": null,
+      "createdAt": "2026-10-30T09:34:25.778Z"
+    },
+    {
+      "id": "aud_1793352826943_302",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "CANCEL_SALE",
+      "entityType": "Sale",
+      "entityId": "sale_1793352418233",
+      "details": "Cancelled invoice AM-00005. Reason: test",
+      "ipAddress": null,
+      "createdAt": "2026-10-30T09:33:47.034Z"
+    },
+    {
+      "id": "aud_1793352420471_227",
+      "userId": "usr_admin_001",
+      "userName": "Apex Admin",
+      "action": "CREATE_SALE",
+      "entityType": "Sale",
+      "entityId": "sale_1793352418233",
+      "details": "Generated Tax Invoice AM-00005 for M/s. DIVYAM MEDPLUS: ₹278 (UPI)",
+      "ipAddress": null,
+      "createdAt": "2026-10-30T09:27:00.568Z"
+    }
+  ],
   "purchaseImports": []
 }

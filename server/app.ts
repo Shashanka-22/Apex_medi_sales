@@ -599,6 +599,8 @@ apiRouter.post('/purchase-import/start', authenticateToken, upload.single('invoi
       status: job.status,
       stage: job.stage,
       cached: job.status === 'completed',
+      extractedRowsCount: job.extractedRowsCount,
+      errorMessage: job.errorMessage,
     });
   } catch (err: any) {
     console.error('[Purchase Import Start] Error:', err?.message || err);
