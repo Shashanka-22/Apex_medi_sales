@@ -4,9 +4,10 @@ import { FileText, Printer, AlertTriangle, CheckCircle, RefreshCw, XCircle, Sear
 
 interface SalesViewProps {
   onViewInvoice: (sale: Sale) => void;
+  syncSignal?: number;
 }
 
-export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice }) => {
+export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal }) => {
   const [sales, setSales] = useState<Sale[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -28,7 +29,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice }) => {
 
   useEffect(() => {
     loadSales();
-  }, []);
+  }, [syncSignal]);
 
   const handleCancelSale = async (e: React.FormEvent) => {
     e.preventDefault();

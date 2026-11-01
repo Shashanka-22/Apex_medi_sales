@@ -20,6 +20,8 @@ import {
   Building2, ShieldCheck, Printer, RefreshCw
 } from 'lucide-react';
 
+import { syncManager, SyncStatus } from './lib/syncManager';
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<UserSession | null>(null);
   const [profile, setProfile] = useState<BusinessProfile | null>(null);
@@ -34,6 +36,21 @@ export default function App() {
 
   // Verification Token from URL query or path
   const [verificationToken, setVerificationToken] = useState<string | null>(null);
+
+  // Database synchronization state
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(syncManager.getStatus());
+  const [syncSignal, setSyncSignal] = useState(0);
+
+  useEffect(() => {
+    const unsubStatus = syncManager.subscribeStatus((st) => setSyncStatus(st));
+    const unsubMut = syncManager.subscribeMutations(() => {
+      setSyncSignal((prev) => prev + 1);
+    });
+    return () => {
+      unsubStatus();
+      unsubMut();
+    };
+  }, []);
 
   useEffect(() => {
     // Check if URL has verification token /verify-invoice/:token
@@ -182,8 +199,48 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Live Neon Sync Indicator & Refresh Button */}
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-800/90 hover:bg-slate-800 rounded-lg border border-slate-700/80 transition text-xs">
+              {syncStatus.state === 'syncing' ? (
+                <span className="flex items-center gap-1.5 text-teal-400 font-medium">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-teal-400" />
+                  <span className="hidden sm:inline">Syncing...</span>
+                </span>
+              ) : syncStatus.state === 'error' ? (
+                <span className="flex items-center gap-1.5 text-rose-400 font-medium" title={syncStatus.lastError || 'Sync Error'}>
+                  <span className="w-2 h-2 rounded-full bg-rose-500"></span>
+                  <span className="hidden sm:inline">Sync Error</span>
+                </span>
+              ) : syncStatus.state === 'offline' ? (
+                <span className="flex items-center gap-1.5 text-amber-400 font-medium">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  <span className="hidden sm:inline">Offline</span>
+                </span>
+              ) : (
+                <span
+                  className="flex items-center gap-1.5 text-emerald-400 font-medium"
+                  title={`Neon PostgreSQL Synced (${syncStatus.lastSyncTime ? new Date(syncStatus.lastSyncTime).toLocaleTimeString('en-IN') : 'Live'})`}
+                >
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="hidden sm:inline font-mono font-semibold">Neon Synced</span>
+                </span>
+              )}
+
+              <button
+                onClick={() => syncManager.forceResync()}
+                disabled={syncStatus.state === 'syncing'}
+                title="Force Refresh Data from Neon PostgreSQL"
+                className="p-1 hover:text-white text-slate-400 transition cursor-pointer disabled:opacity-50 ml-0.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncStatus.state === 'syncing' ? 'animate-spin text-teal-400' : ''}`} />
+              </button>
+            </div>
+
             <button
-              onClick={() => setActiveTab('billing')}
+              onClick={() => {
+                setActiveTab('billing');
+                syncManager.triggerImmediateSync();
+              }}
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition cursor-pointer"
             >
               <ShoppingCart className="w-3.5 h-3.5" />
@@ -308,8 +365,12 @@ export default function App() {
           {activeTab === 'dashboard' && (
             <DashboardView
               profile={defaultProfile}
-              onNavigate={(tab) => setActiveTab(tab)}
+              onNavigate={(tab) => {
+                setActiveTab(tab);
+                syncManager.triggerImmediateSync();
+              }}
               onViewInvoice={(sale) => setActivePrintInvoice(sale)}
+              syncSignal={syncSignal}
             />
           )}
 
@@ -319,34 +380,59 @@ export default function App() {
               onInvoiceCreated={(sale) => {
                 setActivePrintInvoice(sale);
               }}
+              syncSignal={syncSignal}
             />
           )}
 
           {activeTab === 'upload-invoice' && (
             <UploadInvoiceView
-              onPurchaseConfirmed={() => setActiveTab('purchases')}
-              onNavigateToInventory={() => setActiveTab('inventory')}
-              onNavigateToPurchases={() => setActiveTab('purchases')}
+              onPurchaseConfirmed={() => {
+                setActiveTab('purchases');
+                syncManager.triggerImmediateSync();
+              }}
+              onNavigateToInventory={() => {
+                setActiveTab('inventory');
+                syncManager.triggerImmediateSync();
+              }}
+              onNavigateToPurchases={() => {
+                setActiveTab('purchases');
+                syncManager.triggerImmediateSync();
+              }}
             />
           )}
 
           {activeTab === 'sales' && (
-            <SalesView onViewInvoice={(sale) => setActivePrintInvoice(sale)} />
+            <SalesView
+              onViewInvoice={(sale) => setActivePrintInvoice(sale)}
+              syncSignal={syncSignal}
+            />
           )}
 
           {activeTab === 'purchases' && (
-            <PurchasesView onNavigateToUpload={() => setActiveTab('upload-invoice')} />
+            <PurchasesView
+              onNavigateToUpload={() => {
+                setActiveTab('upload-invoice');
+                syncManager.triggerImmediateSync();
+              }}
+              syncSignal={syncSignal}
+            />
           )}
 
           {activeTab === 'inventory' && (
-            <InventoryView onNavigateToUpload={() => setActiveTab('upload-invoice')} />
+            <InventoryView
+              onNavigateToUpload={() => {
+                setActiveTab('upload-invoice');
+                syncManager.triggerImmediateSync();
+              }}
+              syncSignal={syncSignal}
+            />
           )}
 
-          {activeTab === 'alerts' && <StockAlertsView />}
+          {activeTab === 'alerts' && <StockAlertsView syncSignal={syncSignal} />}
 
-          {activeTab === 'parties' && <PartiesView />}
+          {activeTab === 'parties' && <PartiesView syncSignal={syncSignal} />}
 
-          {activeTab === 'reports' && <ReportsView />}
+          {activeTab === 'reports' && <ReportsView syncSignal={syncSignal} />}
 
           {activeTab === 'settings' && (
             <SettingsView

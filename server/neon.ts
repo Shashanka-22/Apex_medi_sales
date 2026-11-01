@@ -569,6 +569,43 @@ export class NeonDatabaseAdapter {
     }
   }
 
+  public async getSyncVersion(): Promise<{ version: string; counts: Record<string, number>; timestamp: number } | null> {
+    if (!this.pool) return null;
+    try {
+      const q = `
+        SELECT
+          (SELECT COUNT(*) FROM medicines) as med_count,
+          (SELECT COUNT(*) FROM medicine_batches) as batch_count,
+          (SELECT COUNT(*) FROM sales) as sale_count,
+          (SELECT COUNT(*) FROM purchases) as purchase_count,
+          (SELECT COUNT(*) FROM customers) as customer_count,
+          (SELECT COUNT(*) FROM suppliers) as supplier_count,
+          (SELECT COALESCE(MAX(updated_at), NOW()) FROM medicines) as med_max,
+          (SELECT COALESCE(MAX(updated_at), NOW()) FROM medicine_batches) as batch_max,
+          (SELECT COALESCE(MAX(updated_at), NOW()) FROM sales) as sale_max
+      `;
+      const res = await this.pool.query(q);
+      const row = res.rows[0];
+      const counts = {
+        medicines: Number(row?.med_count || 0),
+        batches: Number(row?.batch_count || 0),
+        sales: Number(row?.sale_count || 0),
+        purchases: Number(row?.purchase_count || 0),
+        customers: Number(row?.customer_count || 0),
+        suppliers: Number(row?.supplier_count || 0),
+      };
+      const version = `v_${counts.medicines}_${counts.batches}_${counts.sales}_${counts.purchases}_${counts.customers}_${counts.suppliers}_${new Date(row?.med_max || 0).getTime()}_${new Date(row?.batch_max || 0).getTime()}_${new Date(row?.sale_max || 0).getTime()}`;
+      return {
+        version,
+        counts,
+        timestamp: Date.now(),
+      };
+    } catch (err: any) {
+      console.warn('Neon DB: getSyncVersion query error:', err.message);
+      return null;
+    }
+  }
+
   public async getTableCounts(): Promise<Record<string, number>> {
     if (!this.pool) return {};
     const tables = [
@@ -999,6 +1036,38 @@ export class NeonDatabaseAdapter {
       await this.pool.query('DELETE FROM customers WHERE id = $1', [id]);
     } catch (err: any) {
       console.error('Neon DB: removeCustomer error:', err.message);
+      throw err;
+    }
+  }
+
+  public async removeBatch(id: string): Promise<void> {
+    if (!this.pool) return;
+    try {
+      await this.pool.query('DELETE FROM medicine_batches WHERE id = $1', [id]);
+    } catch (err: any) {
+      console.error('Neon DB: removeBatch error:', err.message);
+      throw err;
+    }
+  }
+
+  public async removePurchase(id: string): Promise<void> {
+    if (!this.pool) return;
+    try {
+      // purchase_items are deleted automatically via ON DELETE CASCADE foreign key
+      await this.pool.query('DELETE FROM purchases WHERE id = $1', [id]);
+    } catch (err: any) {
+      console.error('Neon DB: removePurchase error:', err.message);
+      throw err;
+    }
+  }
+
+  public async removeSale(id: string): Promise<void> {
+    if (!this.pool) return;
+    try {
+      // sale_items are deleted automatically via ON DELETE CASCADE foreign key
+      await this.pool.query('DELETE FROM sales WHERE id = $1', [id]);
+    } catch (err: any) {
+      console.error('Neon DB: removeSale error:', err.message);
       throw err;
     }
   }

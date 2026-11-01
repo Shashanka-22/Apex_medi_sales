@@ -61,7 +61,7 @@ async function runAudit() {
     // -------------------------------------------------------------------------
     // TEST 3: Business Profile CRUD & Persistence
     // -------------------------------------------------------------------------
-    const initialProfile = db.getProfile();
+    const initialProfile = await db.getProfile();
     const updatedProfile = await db.updateProfile({
       storeName: 'APEX MEDI SALES & SURGICALS',
     });
@@ -314,7 +314,7 @@ async function runAudit() {
     // TEST 8: Sales POS Billing & Batch Stock Deduction
     // -------------------------------------------------------------------------
     const saleInvNum = `AM-AUD-${Date.now().toString().slice(-5)}`;
-    const batchBeforeSale = db.getBatches().find((b) => b.id === createdBatch.id);
+    const batchBeforeSale = (await db.getBatches()).find((b: any) => b.id === createdBatch.id);
     const qtyBefore = batchBeforeSale?.currentQty || 0;
 
     const createdSale = await db.recordSale({

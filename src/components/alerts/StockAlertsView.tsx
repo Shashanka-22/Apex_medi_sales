@@ -16,7 +16,11 @@ interface AlertItem {
   status: 'EXPIRED' | 'DAYS_30' | 'DAYS_60' | 'DAYS_90' | 'LOW_STOCK';
 }
 
-export const StockAlertsView: React.FC = () => {
+interface StockAlertsViewProps {
+  syncSignal?: number;
+}
+
+export const StockAlertsView: React.FC<StockAlertsViewProps> = ({ syncSignal }) => {
   const [activeTab, setActiveTab] = useState<'EXPIRED' | 'DAYS_30' | 'DAYS_60' | 'DAYS_90' | 'LOW_STOCK'>('EXPIRED');
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +41,7 @@ export const StockAlertsView: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [syncSignal]);
 
   const now = new Date();
   const nowMs = now.getTime();

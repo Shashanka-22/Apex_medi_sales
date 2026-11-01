@@ -10,12 +10,14 @@ interface DashboardViewProps {
   profile: BusinessProfile;
   onNavigate: (tab: string) => void;
   onViewInvoice: (sale: Sale) => void;
+  syncSignal?: number;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   profile,
   onNavigate,
   onViewInvoice,
+  syncSignal,
 }) => {
   const [report, setReport] = useState<DashboardReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -33,7 +35,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   useEffect(() => {
     fetchStats();
-  }, []);
+  }, [syncSignal]);
 
   if (loading || !report) {
     return (

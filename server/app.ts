@@ -60,6 +60,14 @@ function authenticateToken(req: any, res: any, next: any) {
 // Create dedicated API router
 const apiRouter = express.Router();
 
+// Prevent HTTP caching for all API endpoints to guarantee fresh data from Neon PostgreSQL
+apiRouter.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // Health check endpoint
 apiRouter.get('/health', (_req: Request, res: Response) => {
   return res.json({
@@ -68,6 +76,46 @@ apiRouter.get('/health', (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'production',
   });
+});
+
+// Fast Sync Version Endpoint (Single lightweight query to detect Neon external changes)
+apiRouter.get('/sync/version', async (_req: Request, res: Response) => {
+  try {
+    const syncVer = await neonAdapter.getSyncVersion();
+    return res.json(syncVer);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message, version: 'local' });
+  }
+});
+
+// Full Sync Status Endpoint
+apiRouter.get('/sync/status', async (_req: Request, res: Response) => {
+  try {
+    const isNeonAvailable = neonAdapter.isAvailable();
+    const syncVer = await neonAdapter.getSyncVersion();
+    return res.json({
+      isNeonConnected: isNeonAvailable,
+      ...syncVer,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Force Sync from Neon Endpoint
+apiRouter.post('/sync/force', async (_req: Request, res: Response) => {
+  try {
+    await db.syncFromNeon(true);
+    const syncVer = await neonAdapter.getSyncVersion();
+    return res.json({
+      success: true,
+      message: 'Forced Neon PostgreSQL resynchronization completed successfully',
+      ...syncVer,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 // Neon Database status endpoint
@@ -307,8 +355,9 @@ apiRouter.post('/auth/update-account', authenticateToken, async (req: any, res: 
 // ----------------------------------------------------
 // 2. BUSINESS PROFILE
 // ----------------------------------------------------
-apiRouter.get('/profile', (_req: Request, res: Response) => {
-  return res.json(db.getProfile());
+apiRouter.get('/profile', async (_req: Request, res: Response) => {
+  const profile = await db.getProfile();
+  return res.json(profile);
 });
 
 apiRouter.put('/profile', authenticateToken, async (req: any, res: Response) => {
@@ -331,9 +380,9 @@ apiRouter.put('/profile', authenticateToken, async (req: any, res: Response) => 
 // ----------------------------------------------------
 // 3. MEDICINES & BATCHES
 // ----------------------------------------------------
-apiRouter.get('/medicines', (_req: Request, res: Response) => {
-  const medicines = db.getMedicines();
-  const batches = db.getBatches();
+apiRouter.get('/medicines', async (_req: Request, res: Response) => {
+  const medicines = await db.getMedicines();
+  const batches = await db.getBatches();
 
   const result = medicines.map((med) => {
     const medBatches = batches.filter((b) => b.medicineId === med.id);
@@ -383,10 +432,10 @@ apiRouter.delete('/medicines/:id', authenticateToken, async (req: any, res: Resp
   }
 });
 
-apiRouter.get('/batches', (req: Request, res: Response) => {
+apiRouter.get('/batches', async (req: Request, res: Response) => {
   const medicineId = req.query.medicineId as string | undefined;
-  const batches = db.getBatches(medicineId);
-  const medicines = db.getMedicines();
+  const batches = await db.getBatches(medicineId);
+  const medicines = await db.getMedicines();
 
   const enriched = batches.map((b) => {
     const med = medicines.find((m) => m.id === b.medicineId);
@@ -419,6 +468,15 @@ apiRouter.put('/batches/:id', authenticateToken, async (req: any, res: Response)
   }
 });
 
+apiRouter.delete('/batches/:id', authenticateToken, async (req: any, res: Response) => {
+  try {
+    await db.deleteBatch(req.params.id);
+    return res.json({ success: true, message: 'Batch removed successfully' });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
 apiRouter.post('/inventory/adjust', authenticateToken, async (req: any, res: Response) => {
   try {
     const { batchId, newQuantity, reason } = req.body;
@@ -443,8 +501,9 @@ apiRouter.post('/inventory/adjust', authenticateToken, async (req: any, res: Res
 // ----------------------------------------------------
 // 4. SUPPLIERS & CUSTOMERS
 // ----------------------------------------------------
-apiRouter.get('/suppliers', (_req: Request, res: Response) => {
-  return res.json(db.getSuppliers());
+apiRouter.get('/suppliers', async (_req: Request, res: Response) => {
+  const suppliers = await db.getSuppliers();
+  return res.json(suppliers);
 });
 
 apiRouter.post('/suppliers', authenticateToken, async (req: any, res: Response) => {
@@ -474,8 +533,9 @@ apiRouter.delete('/suppliers/:id', authenticateToken, async (req: any, res: Resp
   }
 });
 
-apiRouter.get('/customers', (_req: Request, res: Response) => {
-  return res.json(db.getCustomers());
+apiRouter.get('/customers', async (_req: Request, res: Response) => {
+  const customers = await db.getCustomers();
+  return res.json(customers);
 });
 
 apiRouter.post('/customers', authenticateToken, async (req: any, res: Response) => {
@@ -508,8 +568,18 @@ apiRouter.delete('/customers/:id', authenticateToken, async (req: any, res: Resp
 // ----------------------------------------------------
 // 5. PURCHASES & INVOICE OCR
 // ----------------------------------------------------
-apiRouter.get('/purchases', (_req: Request, res: Response) => {
-  return res.json(db.getPurchases());
+apiRouter.get('/purchases', async (_req: Request, res: Response) => {
+  const purchases = await db.getPurchases();
+  return res.json(purchases);
+});
+
+apiRouter.delete('/purchases/:id', authenticateToken, async (req: any, res: Response) => {
+  try {
+    await db.deletePurchase(req.params.id);
+    return res.json({ success: true, message: 'Purchase deleted and stock adjusted' });
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
 });
 
 apiRouter.post('/purchases', authenticateToken, async (req: any, res: Response) => {
@@ -523,8 +593,8 @@ apiRouter.post('/purchases', authenticateToken, async (req: any, res: Response) 
 
 // Helper: Match extracted invoice lines with existing medicines & batches in DB
 function matchExtractedItemsWithInventory(items: ExtractedMedicineRow[]): ExtractedMedicineRow[] {
-  const medicines = db.getMedicines();
-  const batches = db.getBatches();
+  const medicines = db.getMedicinesSync();
+  const batches = db.getBatchesSync();
 
   return items.map((item, index) => {
     const rawName = (item.productName || '').trim();
@@ -760,7 +830,7 @@ apiRouter.post('/purchase-import/confirm', authenticateToken, async (req: any, r
     }
 
     // Duplicate purchase prevention: prevent accidental double-importing of the same supplier invoice
-    const existingPurchases = db.getPurchases();
+    const existingPurchases = await db.getPurchases();
     const isDuplicate = existingPurchases.some(
       (p) =>
         p.supplierInvoiceNumber &&
@@ -778,7 +848,7 @@ apiRouter.post('/purchase-import/confirm', authenticateToken, async (req: any, r
 
     // A. Verify or auto-create supplier
     let finalSupplierId = supplierId;
-    const existingSuppliers = db.getSuppliers();
+    const existingSuppliers = await db.getSuppliers();
     const matchedSup = existingSuppliers.find(
       (s) =>
         (supplierId && s.id === supplierId) ||
@@ -801,7 +871,7 @@ apiRouter.post('/purchase-import/confirm', authenticateToken, async (req: any, r
     }
 
     // B. Ensure all medicines exist in database master (auto-create if new)
-    const existingMeds = db.getMedicines();
+    const existingMeds = await db.getMedicines();
     const preparedItems = [];
     let totalStockAdded = 0;
 
@@ -937,8 +1007,9 @@ apiRouter.get('/purchase-import/history', async (_req: Request, res: Response) =
 // ----------------------------------------------------
 // 6. SALES BILLING & INVOICE VERIFICATION
 // ----------------------------------------------------
-apiRouter.get('/sales', (_req: Request, res: Response) => {
-  return res.json(db.getSales());
+apiRouter.get('/sales', async (_req: Request, res: Response) => {
+  const sales = await db.getSales();
+  return res.json(sales);
 });
 
 apiRouter.post('/sales', authenticateToken, async (req: any, res: Response) => {
@@ -963,9 +1034,9 @@ apiRouter.post('/sales/:id/cancel', authenticateToken, async (req: any, res: Res
   }
 });
 
-apiRouter.get('/verify-invoice/:token', (req: Request, res: Response) => {
+apiRouter.get('/verify-invoice/:token', async (req: Request, res: Response) => {
   const { token } = req.params;
-  const sales = db.getSales();
+  const sales = await db.getSales();
   const sale = sales.find((s) => s.verificationToken === token);
 
   if (!sale) {
@@ -975,7 +1046,7 @@ apiRouter.get('/verify-invoice/:token', (req: Request, res: Response) => {
     });
   }
 
-  const profile = db.getProfile();
+  const profile = await db.getProfile();
   return res.json({
     valid: true,
     invoiceNumber: sale.invoiceNumber,
@@ -997,16 +1068,19 @@ apiRouter.get('/verify-invoice/:token', (req: Request, res: Response) => {
 // ----------------------------------------------------
 // 7. PAYMENTS & LEDGERS
 // ----------------------------------------------------
-apiRouter.get('/ledgers/customer/:id', (req: Request, res: Response) => {
-  return res.json(db.getCustomerLedger(req.params.id));
+apiRouter.get('/ledgers/customer/:id', async (req: Request, res: Response) => {
+  const ledger = await db.getCustomerLedger(req.params.id);
+  return res.json(ledger);
 });
 
-apiRouter.get('/ledgers/supplier/:id', (req: Request, res: Response) => {
-  return res.json(db.getSupplierLedger(req.params.id));
+apiRouter.get('/ledgers/supplier/:id', async (req: Request, res: Response) => {
+  const ledger = await db.getSupplierLedger(req.params.id);
+  return res.json(ledger);
 });
 
-apiRouter.get('/payments', (_req: Request, res: Response) => {
-  return res.json(db.getPayments());
+apiRouter.get('/payments', async (_req: Request, res: Response) => {
+  const payments = await db.getPayments();
+  return res.json(payments);
 });
 
 apiRouter.post('/payments', authenticateToken, async (req: any, res: Response) => {
@@ -1021,13 +1095,13 @@ apiRouter.post('/payments', authenticateToken, async (req: any, res: Response) =
 // ----------------------------------------------------
 // 8. DASHBOARD & REPORTS
 // ----------------------------------------------------
-apiRouter.get('/reports/dashboard', (_req: Request, res: Response) => {
-  const sales = db.getSales();
-  const purchases = db.getPurchases();
-  const medicines = db.getMedicines();
-  const batches = db.getBatches();
-  const customers = db.getCustomers();
-  const suppliers = db.getSuppliers();
+apiRouter.get('/reports/dashboard', async (_req: Request, res: Response) => {
+  const sales = await db.getSales();
+  const purchases = await db.getPurchases();
+  const medicines = await db.getMedicines();
+  const batches = await db.getBatches();
+  const customers = await db.getCustomers();
+  const suppliers = await db.getSuppliers();
 
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
@@ -1117,12 +1191,14 @@ apiRouter.get('/reports/dashboard', (_req: Request, res: Response) => {
   });
 });
 
-apiRouter.get('/reports/movements', (_req: Request, res: Response) => {
-  return res.json(db.getStockMovements());
+apiRouter.get('/reports/movements', async (_req: Request, res: Response) => {
+  const movements = await db.getStockMovements();
+  return res.json(movements);
 });
 
-apiRouter.get('/reports/audit-logs', authenticateToken, (_req: Request, res: Response) => {
-  return res.json(db.getAuditLogs());
+apiRouter.get('/reports/audit-logs', authenticateToken, async (_req: Request, res: Response) => {
+  const logs = await db.getAuditLogs();
+  return res.json(logs);
 });
 
 // ----------------------------------------------------

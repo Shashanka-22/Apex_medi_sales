@@ -1,6 +1,7 @@
 /**
  * API client for Apex Medi Sales ERP
  */
+import { syncManager } from './syncManager.js';
 
 export interface UserSession {
   id: string;
@@ -417,6 +418,10 @@ class ApiService {
       ...(options.headers as Record<string, string>),
     };
 
+    // Guarantee fresh data from server and Neon database
+    headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    headers['Pragma'] = 'no-cache';
+
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
@@ -471,16 +476,33 @@ class ApiService {
     });
   }
 
+  // Sync
+  async getSyncVersion(): Promise<{ version: string; counts: Record<string, number>; timestamp: string }> {
+    return this.request('/api/sync/version');
+  }
+
+  async getSyncStatus(): Promise<any> {
+    return this.request('/api/sync/status');
+  }
+
+  async forceNeonSync(): Promise<any> {
+    const res = await this.request('/api/sync/force', { method: 'POST' });
+    syncManager.notifyMutation('forced_neon_sync');
+    return res;
+  }
+
   // Profile
   async getProfile(): Promise<BusinessProfile> {
     return this.request('/api/profile');
   }
 
   async updateProfile(profile: Partial<BusinessProfile>): Promise<BusinessProfile> {
-    return this.request('/api/profile', {
+    const res = await this.request<BusinessProfile>('/api/profile', {
       method: 'PUT',
       body: JSON.stringify(profile),
     });
+    syncManager.notifyMutation('profile');
+    return res;
   }
 
   // Medicines & Batches
@@ -489,23 +511,29 @@ class ApiService {
   }
 
   async addMedicine(data: any): Promise<Medicine> {
-    return this.request('/api/medicines', {
+    const res = await this.request<Medicine>('/api/medicines', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    syncManager.notifyMutation('medicines');
+    return res;
   }
 
   async updateMedicine(id: string, data: any): Promise<Medicine> {
-    return this.request(`/api/medicines/${id}`, {
+    const res = await this.request<Medicine>(`/api/medicines/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+    syncManager.notifyMutation('medicines');
+    return res;
   }
 
   async deleteMedicine(id: string): Promise<{ success: boolean }> {
-    return this.request(`/api/medicines/${id}`, {
+    const res = await this.request<{ success: boolean }>(`/api/medicines/${id}`, {
       method: 'DELETE',
     });
+    syncManager.notifyMutation('medicines');
+    return res;
   }
 
   async getBatches(medicineId?: string): Promise<MedicineBatch[]> {
@@ -513,17 +541,38 @@ class ApiService {
   }
 
   async addBatch(data: any): Promise<MedicineBatch> {
-    return this.request('/api/batches', {
+    const res = await this.request<MedicineBatch>('/api/batches', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    syncManager.notifyMutation('batches');
+    return res;
+  }
+
+  async updateBatch(id: string, data: any): Promise<MedicineBatch> {
+    const res = await this.request<MedicineBatch>(`/api/batches/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+    syncManager.notifyMutation('batches');
+    return res;
+  }
+
+  async deleteBatch(id: string): Promise<{ success: boolean; message: string }> {
+    const res = await this.request<{ success: boolean; message: string }>(`/api/batches/${id}`, {
+      method: 'DELETE',
+    });
+    syncManager.notifyMutation('batches');
+    return res;
   }
 
   async adjustStock(batchId: string, newQuantity: number, reason: string): Promise<any> {
-    return this.request('/api/inventory/adjust', {
+    const res = await this.request('/api/inventory/adjust', {
       method: 'POST',
       body: JSON.stringify({ batchId, newQuantity, reason }),
     });
+    syncManager.notifyMutation('inventory');
+    return res;
   }
 
   // Suppliers & Customers
@@ -532,23 +581,29 @@ class ApiService {
   }
 
   async addSupplier(data: any): Promise<Supplier> {
-    return this.request('/api/suppliers', {
+    const res = await this.request<Supplier>('/api/suppliers', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    syncManager.notifyMutation('suppliers');
+    return res;
   }
 
   async updateSupplier(id: string, data: any): Promise<Supplier> {
-    return this.request(`/api/suppliers/${id}`, {
+    const res = await this.request<Supplier>(`/api/suppliers/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+    syncManager.notifyMutation('suppliers');
+    return res;
   }
 
   async deleteSupplier(id: string): Promise<{ success: boolean }> {
-    return this.request(`/api/suppliers/${id}`, {
+    const res = await this.request<{ success: boolean }>(`/api/suppliers/${id}`, {
       method: 'DELETE',
     });
+    syncManager.notifyMutation('suppliers');
+    return res;
   }
 
   async getCustomers(): Promise<Customer[]> {
@@ -556,23 +611,29 @@ class ApiService {
   }
 
   async addCustomer(data: any): Promise<Customer> {
-    return this.request('/api/customers', {
+    const res = await this.request<Customer>('/api/customers', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    syncManager.notifyMutation('customers');
+    return res;
   }
 
   async updateCustomer(id: string, data: any): Promise<Customer> {
-    return this.request(`/api/customers/${id}`, {
+    const res = await this.request<Customer>(`/api/customers/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
+    syncManager.notifyMutation('customers');
+    return res;
   }
 
   async deleteCustomer(id: string): Promise<{ success: boolean }> {
-    return this.request(`/api/customers/${id}`, {
+    const res = await this.request<{ success: boolean }>(`/api/customers/${id}`, {
       method: 'DELETE',
     });
+    syncManager.notifyMutation('customers');
+    return res;
   }
 
   // Purchases
@@ -581,10 +642,20 @@ class ApiService {
   }
 
   async recordPurchase(purchaseData: any): Promise<Purchase> {
-    return this.request('/api/purchases', {
+    const res = await this.request<Purchase>('/api/purchases', {
       method: 'POST',
       body: JSON.stringify(purchaseData),
     });
+    syncManager.notifyMutation('purchases');
+    return res;
+  }
+
+  async deletePurchase(id: string): Promise<{ success: boolean; message: string }> {
+    const res = await this.request<{ success: boolean; message: string }>(`/api/purchases/${id}`, {
+      method: 'DELETE',
+    });
+    syncManager.notifyMutation('purchases');
+    return res;
   }
 
   // AI Purchase Bill Import & Vision AI OCR
@@ -666,10 +737,19 @@ class ApiService {
     totalStockAdded: number;
     importedCount: number;
   }> {
-    return this.request('/api/purchase-import/confirm', {
+    const res = await this.request<{
+      success: boolean;
+      message: string;
+      purchase: Purchase;
+      importRecord: PurchaseImportRecord;
+      totalStockAdded: number;
+      importedCount: number;
+    }>('/api/purchase-import/confirm', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+    syncManager.notifyMutation('purchases');
+    return res;
   }
 
   async getPurchaseImportHistory(): Promise<PurchaseImportRecord[]> {
@@ -696,17 +776,21 @@ class ApiService {
   }
 
   async recordSale(saleData: any): Promise<Sale> {
-    return this.request('/api/sales', {
+    const res = await this.request<Sale>('/api/sales', {
       method: 'POST',
       body: JSON.stringify(saleData),
     });
+    syncManager.notifyMutation('sales');
+    return res;
   }
 
   async cancelSale(saleId: string, reason: string): Promise<Sale> {
-    return this.request(`/api/sales/${saleId}/cancel`, {
+    const res = await this.request<Sale>(`/api/sales/${saleId}/cancel`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     });
+    syncManager.notifyMutation('sales');
+    return res;
   }
 
   async verifyInvoice(token: string): Promise<any> {
@@ -723,10 +807,12 @@ class ApiService {
   }
 
   async recordPayment(data: any): Promise<any> {
-    return this.request('/api/payments', {
+    const res = await this.request('/api/payments', {
       method: 'POST',
       body: JSON.stringify(data),
     });
+    syncManager.notifyMutation('payments');
+    return res;
   }
 
   // Dashboard & Reports

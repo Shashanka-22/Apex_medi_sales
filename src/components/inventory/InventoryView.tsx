@@ -7,9 +7,10 @@ import {
 
 interface InventoryViewProps {
   onNavigateToUpload?: () => void;
+  syncSignal?: number;
 }
 
-export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigateToUpload }) => {
+export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigateToUpload, syncSignal }) => {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -73,7 +74,19 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigateToUpload
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [syncSignal]);
+
+  const handleDeleteBatch = async (batchId: string, batchNo: string) => {
+    if (!confirm(`Are you sure you want to delete batch "${batchNo}" from Neon PostgreSQL?`)) return;
+    try {
+      await api.deleteBatch(batchId);
+      setSuccessMessage(`Batch ${batchNo} deleted successfully.`);
+      setTimeout(() => setSuccessMessage(null), 3000);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to delete batch');
+    }
+  };
 
   const filteredMedicines = medicines.filter((m) => {
     const matchSearch =
@@ -485,19 +498,28 @@ export const InventoryView: React.FC<InventoryViewProps> = ({ onNavigateToUpload
                                             )}
                                           </td>
                                           <td className="py-2 px-2 text-center">
-                                            <button
-                                              onClick={() => {
-                                                setShowAdjustStock(batch);
-                                                setAdjustData({
-                                                  newQuantity: batch.currentQty,
-                                                  reason: 'Physical Stock Count Reconciliation',
-                                                });
-                                              }}
-                                              className="p-1 text-slate-600 hover:text-teal-700 rounded transition cursor-pointer"
-                                              title="Adjust Stock Quantity"
-                                            >
-                                              <Sliders className="w-3.5 h-3.5" />
-                                            </button>
+                                            <div className="flex items-center justify-center gap-1">
+                                              <button
+                                                onClick={() => {
+                                                  setShowAdjustStock(batch);
+                                                  setAdjustData({
+                                                    newQuantity: batch.currentQty,
+                                                    reason: 'Physical Stock Count Reconciliation',
+                                                  });
+                                                }}
+                                                className="p-1 text-slate-600 hover:text-teal-700 rounded transition cursor-pointer"
+                                                title="Adjust Stock Quantity"
+                                              >
+                                                <Sliders className="w-3.5 h-3.5" />
+                                              </button>
+                                              <button
+                                                onClick={() => handleDeleteBatch(batch.id, batch.batchNumber)}
+                                                className="p-1 text-slate-400 hover:text-rose-600 rounded transition cursor-pointer"
+                                                title="Delete Batch from Neon Database"
+                                              >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                              </button>
+                                            </div>
                                           </td>
                                         </tr>
                                       );

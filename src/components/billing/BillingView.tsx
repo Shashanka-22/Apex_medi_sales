@@ -32,9 +32,10 @@ interface BillingItem {
 interface BillingViewProps {
   profile: BusinessProfile;
   onInvoiceCreated: (sale: Sale) => void;
+  syncSignal?: number;
 }
 
-export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCreated }) => {
+export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCreated, syncSignal }) => {
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -97,6 +98,14 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
   useEffect(() => {
     loadMasterData();
   }, [profile]);
+
+  // Background sync: update medicines & customers from Neon without resetting cart or form
+  useEffect(() => {
+    if (syncSignal && syncSignal > 0) {
+      api.getMedicines().then((meds) => setMedicines(meds)).catch(() => {});
+      api.getCustomers().then((custs) => setCustomers(custs)).catch(() => {});
+    }
+  }, [syncSignal]);
 
   // Live Medicine Search
   useEffect(() => {

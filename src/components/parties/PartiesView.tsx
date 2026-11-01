@@ -5,7 +5,11 @@ import {
   Search, Edit2, Trash2, AlertCircle, CheckCircle
 } from 'lucide-react';
 
-export const PartiesView: React.FC = () => {
+interface PartiesViewProps {
+  syncSignal?: number;
+}
+
+export const PartiesView: React.FC<PartiesViewProps> = ({ syncSignal }) => {
   const [activeTab, setActiveTab] = useState<'CUSTOMERS' | 'SUPPLIERS'>('CUSTOMERS');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -63,7 +67,7 @@ export const PartiesView: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [syncSignal]);
 
   const handleOpenLedger = async (party: { id: string; name: string; type: 'CUSTOMER' | 'SUPPLIER'; balance: number }) => {
     setActiveLedgerParty(party);

@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { api, Sale, StockMovement, AuditLog } from '../../lib/api';
 import { FileText, Download, BarChart3, History, Shield, RefreshCw } from 'lucide-react';
 
-export const ReportsView: React.FC = () => {
+interface ReportsViewProps {
+  syncSignal?: number;
+}
+
+export const ReportsView: React.FC<ReportsViewProps> = ({ syncSignal }) => {
   const [activeTab, setActiveTab] = useState<'GST' | 'MOVEMENTS' | 'AUDIT'>('GST');
   const [sales, setSales] = useState<Sale[]>([]);
   const [movements, setMovements] = useState<StockMovement[]>([]);
@@ -28,7 +32,7 @@ export const ReportsView: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [syncSignal]);
 
   // Compute GST Tax Slab Summary from non-cancelled sales
   const activeSales = sales.filter((s) => !s.isCancelled);

@@ -327,19 +327,20 @@ function getStoragePaths() {
 
 class DatabaseEngine {
   private state: DatabaseState | null = null;
+  private lastNeonSyncTime = 0;
   private neonSyncInProgress = false;
 
-  constructor() {
-    this.ensureInitialized();
-    this.syncFromNeon();
-  }
-
-  public async syncFromNeon(): Promise<boolean> {
-    if (this.neonSyncInProgress || !neonAdapter.isAvailable()) return false;
+  public async syncFromNeon(force = false): Promise<boolean> {
+    if (!neonAdapter.isAvailable()) return false;
+    // Debounce to at most once every 500ms unless forced
+    if (!force && Date.now() - this.lastNeonSyncTime < 500) {
+      return true;
+    }
+    if (this.neonSyncInProgress) return false;
     this.neonSyncInProgress = true;
     try {
       const neonData = await neonAdapter.loadAllFromNeon();
-      if (neonData && (neonData.businessProfile || (neonData.users && neonData.users.length > 0))) {
+      if (neonData) {
         this.state = {
           users: neonData.users && neonData.users.length > 0 ? neonData.users : (this.state?.users || []),
           businessProfile: neonData.businessProfile || (this.state?.businessProfile as any),
@@ -356,8 +357,8 @@ class DatabaseEngine {
           auditLogs: neonData.auditLogs || [],
           purchaseImports: neonData.purchaseImports || [],
         };
+        this.lastNeonSyncTime = Date.now();
         this.persist();
-        console.log(`Neon PostgreSQL: Synced live state (${this.state.medicines.length} medicines, ${this.state.batches.length} batches, ${this.state.sales.length} sales)`);
         return true;
       }
       return false;
@@ -512,15 +513,32 @@ class DatabaseEngine {
     return this.getState().users.find((u) => u.id === id);
   }
 
-  public getProfile(): BusinessProfile {
+  public async getProfile(): Promise<BusinessProfile> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().businessProfile;
   }
 
-  public getMedicines(): Medicine[] {
+  public getProfileSync(): BusinessProfile {
+    return this.getState().businessProfile;
+  }
+
+  public async getMedicines(): Promise<Medicine[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().medicines;
   }
 
-  public getBatches(medicineId?: string): MedicineBatch[] {
+  public getMedicinesSync(): Medicine[] {
+    return this.getState().medicines;
+  }
+
+  public async getBatches(medicineId?: string): Promise<MedicineBatch[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     const batches = this.getState().batches;
     if (medicineId) {
       return batches.filter((b) => b.medicineId === medicineId);
@@ -528,39 +546,90 @@ class DatabaseEngine {
     return batches;
   }
 
-  public getSuppliers(): Supplier[] {
+  public getBatchesSync(medicineId?: string): MedicineBatch[] {
+    const batches = this.getState().batches;
+    if (medicineId) {
+      return batches.filter((b) => b.medicineId === medicineId);
+    }
+    return batches;
+  }
+
+  public async getSuppliers(): Promise<Supplier[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().suppliers;
   }
 
-  public getCustomers(): Customer[] {
+  public getSuppliersSync(): Supplier[] {
+    return this.getState().suppliers;
+  }
+
+  public async getCustomers(): Promise<Customer[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().customers;
   }
 
-  public getPurchases(): Purchase[] {
+  public getCustomersSync(): Customer[] {
+    return this.getState().customers;
+  }
+
+  public async getPurchases(): Promise<Purchase[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().purchases;
   }
 
-  public getSales(): Sale[] {
+  public getPurchasesSync(): Purchase[] {
+    return this.getState().purchases;
+  }
+
+  public async getSales(): Promise<Sale[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().sales;
   }
 
-  public getPayments(): Payment[] {
+  public getSalesSync(): Sale[] {
+    return this.getState().sales;
+  }
+
+  public async getPayments(): Promise<Payment[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().payments;
   }
 
-  public getCustomerLedger(customerId: string): CustomerLedgerEntry[] {
+  public async getCustomerLedger(customerId: string): Promise<CustomerLedgerEntry[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().customerLedgers.filter((l) => l.customerId === customerId);
   }
 
-  public getSupplierLedger(supplierId: string): SupplierLedgerEntry[] {
+  public async getSupplierLedger(supplierId: string): Promise<SupplierLedgerEntry[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().supplierLedgers.filter((l) => l.supplierId === supplierId);
   }
 
-  public getStockMovements(): StockMovement[] {
+  public async getStockMovements(): Promise<StockMovement[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().stockMovements;
   }
 
-  public getAuditLogs(): AuditLog[] {
+  public async getAuditLogs(): Promise<AuditLog[]> {
+    if (neonAdapter.isAvailable()) {
+      await this.syncFromNeon();
+    }
     return this.getState().auditLogs;
   }
 
@@ -734,6 +803,15 @@ class DatabaseEngine {
     state.batches[idx] = updated;
     this.persist();
     return updated;
+  }
+
+  public async deleteBatch(id: string): Promise<void> {
+    const state = this.getState();
+    const batch = state.batches.find((b) => b.id === id);
+    if (!batch) throw new Error('Batch not found');
+    await neonAdapter.removeBatch(id);
+    state.batches = state.batches.filter((b) => b.id !== id);
+    this.persist();
   }
 
   public async adjustStock(params: {
@@ -1018,6 +1096,44 @@ class DatabaseEngine {
 
     this.persist();
     return purchase;
+  }
+
+  public async deletePurchase(id: string): Promise<void> {
+    const state = this.getState();
+    const purchase = state.purchases.find((p) => p.id === id);
+    if (!purchase) throw new Error('Purchase not found');
+
+    // Deduct batch quantities added by this purchase
+    for (const item of purchase.items) {
+      const batch = state.batches.find(
+        (b) => b.medicineId === item.medicineId && b.batchNumber.toLowerCase() === item.batchNumber.toLowerCase()
+      );
+      if (batch) {
+        const qtyToDeduct = item.quantity + (item.freeQty || 0);
+        batch.currentQty = Math.max(0, batch.currentQty - qtyToDeduct);
+        batch.updatedAt = new Date().toISOString();
+        await neonAdapter.updateBatchCurrentQty(batch.id, batch.currentQty);
+      }
+    }
+
+    // Reconcile supplier balance
+    const supplier = state.suppliers.find((s) => s.id === purchase.supplierId);
+    if (supplier) {
+      supplier.currentBalance = Math.max(0, supplier.currentBalance - purchase.grandTotal);
+      supplier.updatedAt = new Date().toISOString();
+      await neonAdapter.persistSupplier(supplier);
+    }
+
+    await neonAdapter.removePurchase(id);
+    state.purchases = state.purchases.filter((p) => p.id !== id);
+    this.persist();
+
+    this.logAudit({
+      action: 'DELETE_PURCHASE',
+      entityType: 'Purchase',
+      entityId: id,
+      details: `Deleted purchase ${purchase.invoiceNumber} (Supplier Inv: ${purchase.supplierInvoiceNumber})`,
+    });
   }
 
   // --- Transactions: Sales Billing ---
