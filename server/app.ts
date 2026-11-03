@@ -1034,6 +1034,16 @@ apiRouter.post('/sales/:id/cancel', authenticateToken, async (req: any, res: Res
   }
 });
 
+apiRouter.post('/sales/:id/mark-paid', authenticateToken, async (req: any, res: Response) => {
+  try {
+    const { paymentMode, notes } = req.body;
+    const updated = await db.markSaleAsPaid(req.params.id, { paymentMode, notes }, req.user?.id, req.user?.name);
+    return res.json(updated);
+  } catch (err: any) {
+    return res.status(400).json({ error: err.message });
+  }
+});
+
 apiRouter.get('/verify-invoice/:token', async (req: Request, res: Response) => {
   const { token } = req.params;
   const sales = await db.getSales();

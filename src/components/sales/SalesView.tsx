@@ -13,6 +13,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal 
   const [search, setSearch] = useState('');
   const [cancelModalSale, setCancelModalSale] = useState<Sale | null>(null);
   const [cancelReason, setCancelReason] = useState('');
+  const [markingPaidId, setMarkingPaidId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -30,6 +31,23 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal 
   useEffect(() => {
     loadSales();
   }, [syncSignal]);
+
+  const handleMarkPaid = async (sale: Sale) => {
+    setError(null);
+    setSuccess(null);
+    setMarkingPaidId(sale.id);
+    try {
+      await api.markSaleAsPaid(sale.id, { paymentMode: sale.paymentMode });
+      setSuccess(`Invoice #${sale.invoiceNumber} is now marked as PAID.`);
+      setTimeout(() => setSuccess(null), 4000);
+      await loadSales();
+    } catch (err: any) {
+      console.error('Failed to mark sale as paid:', err);
+      setError(err?.message || 'Failed to mark invoice as paid');
+    } finally {
+      setMarkingPaidId(null);
+    }
+  };
 
   const handleCancelSale = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +67,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal 
 
   const handleExportCsv = () => {
     const rows = [
-      ['Invoice No', 'Date', 'Customer Name', 'Payment Mode', 'Status', 'Taxable Amount', 'CGST', 'SGST', 'IGST', 'Grand Total']
+      ['Invoice No', 'Date', 'Customer Name', 'Payment Mode', 'Payment Status', 'Invoice Status', 'Taxable Amount', 'CGST', 'SGST', 'IGST', 'Grand Total']
     ];
     sales.forEach((s) => {
       rows.push([
@@ -57,6 +75,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal 
         s.invoiceDate ? s.invoiceDate.substring(0, 10) : '',
         s.customerName,
         s.paymentMode,
+        s.paymentStatus || 'Paid',
         s.isCancelled ? 'CANCELLED' : 'ACTIVE',
         String(s.taxableAmount),
         String(s.cgstAmount),
@@ -115,9 +134,26 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal 
       </div>
 
       {success && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-emerald-600" />
-          <span>{success}</span>
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600" />
+            <span>{success}</span>
+          </div>
+          <button onClick={() => setSuccess(null)} className="text-emerald-600 hover:text-emerald-900">
+            <XCircle className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-800 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600" />
+            <span>{error}</span>
+          </div>
+          <button onClick={() => setError(null)} className="text-rose-600 hover:text-rose-900">
+            <XCircle className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -147,9 +183,24 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal 
                   </td>
                   <td className="py-3 px-3 font-medium text-slate-900">{sale.customerName}</td>
                   <td className="py-3 px-2 text-center">
-                    <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">
-                      {sale.paymentMode}
-                    </span>
+                    <div className="flex flex-col items-center gap-1">
+                      <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">
+                        {sale.paymentMode}
+                      </span>
+                      {sale.isCancelled ? (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-rose-100 text-rose-700">
+                          VOID
+                        </span>
+                      ) : sale.paymentStatus === 'Paid' ? (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          PAID
+                        </span>
+                      ) : (
+                        <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                          PENDING
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-3 px-2 text-right font-mono text-slate-700">
                     ₹{sale.taxableAmount.toFixed(2)}
@@ -172,7 +223,7 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal 
                     )}
                   </td>
                   <td className="py-3 px-3 text-center">
-                    <div className="flex items-center justify-center gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
                       <button
                         onClick={() => onViewInvoice(sale)}
                         className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded font-semibold text-[11px] transition cursor-pointer flex items-center gap-1"
@@ -180,6 +231,17 @@ export const SalesView: React.FC<SalesViewProps> = ({ onViewInvoice, syncSignal 
                         <Printer className="w-3.5 h-3.5" />
                         Print A4
                       </button>
+                      {!sale.isCancelled && sale.paymentStatus !== 'Paid' && (
+                        <button
+                          onClick={() => handleMarkPaid(sale)}
+                          disabled={markingPaidId === sale.id}
+                          className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded font-semibold text-[11px] transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                          title="Confirm customer payment and mark invoice as Paid"
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          {markingPaidId === sale.id ? 'Saving...' : 'Mark Paid'}
+                        </button>
+                      )}
                       {!sale.isCancelled && (
                         <button
                           onClick={() => setCancelModalSale(sale)}

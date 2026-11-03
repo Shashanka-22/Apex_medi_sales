@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
 import { Sale, BusinessProfile } from '../../lib/api';
 import { numberToIndianWords } from '../../lib/tax';
+import { Check, AlertCircle } from 'lucide-react';
 
 export interface InvoiceTemplateProps {
   sale: Sale;
   profile: BusinessProfile;
-  qrCodeUrl?: string;
-  copyLabel?: string;
+  paymentQrCodeUrl?: string;
+  qrCodeUrl?: string; // backwards compatibility
   id?: string;
   className?: string;
 }
@@ -14,8 +16,8 @@ export interface InvoiceTemplateProps {
 export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
   sale,
   profile,
+  paymentQrCodeUrl,
   qrCodeUrl,
-  copyLabel = 'Original / Duplicate',
   id = 'invoice-printable-root',
   className = '',
 }) => {
@@ -25,7 +27,56 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
     year: 'numeric',
   });
 
-  const verifyUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/verify-invoice/${sale.verificationToken}`;
+  const isPaid = sale.paymentStatus === 'Paid';
+  const configuredUpiId = (profile.upiId || '').trim();
+  const hasUpi = Boolean(configuredUpiId);
+  const storeName = (profile.storeName || 'APEX MEDI SALES').trim();
+  const grandTotalStr = sale.grandTotal.toFixed(2);
+  const invoiceNo = (sale.invoiceNumber || '').trim();
+
+  // Dynamic NPCI Standard UPI Payment URI
+  const upiPaymentUri = hasUpi
+    ? `upi://pay?pa=${encodeURIComponent(configuredUpiId)}&pn=${encodeURIComponent(storeName)}&am=${encodeURIComponent(grandTotalStr)}&cu=INR&tn=${encodeURIComponent(`Invoice ${invoiceNo}`)}&tr=${encodeURIComponent(invoiceNo)}`
+    : '';
+
+  // Internal dynamic QR generation if not passed from parent
+  const [generatedQrUrl, setGeneratedQrUrl] = useState<string>('');
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (isPaid || !hasUpi) {
+      setGeneratedQrUrl('');
+      return;
+    }
+
+    if (paymentQrCodeUrl || qrCodeUrl) {
+      setGeneratedQrUrl(paymentQrCodeUrl || qrCodeUrl || '');
+      return;
+    }
+
+    QRCode.toDataURL(upiPaymentUri, {
+      width: 160,
+      margin: 1,
+      errorCorrectionLevel: 'M',
+      color: {
+        dark: '#0f172a',
+        light: '#ffffff',
+      },
+    })
+      .then((url) => {
+        if (isMounted) setGeneratedQrUrl(url);
+      })
+      .catch((err) => {
+        console.error('Failed generating Payment QR code:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [upiPaymentUri, isPaid, hasUpi, paymentQrCodeUrl, qrCodeUrl]);
+
+  const activeQrUrl = paymentQrCodeUrl || qrCodeUrl || generatedQrUrl;
 
   // Tax Matrix breakdown across 0%, 5%, 12%, 18%, 28% slabs
   const taxSlabs = [0, 5, 12, 18, 28];
@@ -52,13 +103,9 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
       className={`invoice-container bg-white text-slate-900 border border-slate-400 p-4 sm:p-6 w-full max-w-[210mm] mx-auto shadow-xs font-sans text-xs box-border ${className}`}
       style={{ minWidth: '190mm', backgroundColor: '#ffffff' }}
     >
-      {/* Header */}
+      {/* Header — Clean, symmetric, with ORIGINAL / DUPLICATE completely removed */}
       <div className="flex justify-between items-start border-b border-slate-400 pb-3">
-        <div className="text-left w-24">
-          <span className="text-[10px] text-slate-500 uppercase tracking-wider block font-semibold">
-            {copyLabel}
-          </span>
-        </div>
+        <div className="w-20 hidden sm:block"></div>
         <div className="text-center flex-1 px-2">
           <span className="text-xs font-bold tracking-widest text-slate-700 block uppercase">
             TAX INVOICE
@@ -80,7 +127,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             D.L.NO.: {profile.dlNo1} &amp; {profile.dlNo2}
           </p>
         </div>
-        <div className="w-24 text-right">
+        <div className="w-20 text-right">
           <span className="text-[10px] border border-slate-400 px-1.5 py-0.5 rounded font-mono uppercase font-semibold">
             HSN 3004
           </span>
@@ -125,10 +172,22 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
             <span className="text-slate-600">Payment Mode :</span>
             <span className="font-semibold text-slate-900 uppercase">{sale.paymentMode}</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <span className="text-slate-600">Payment Status :</span>
-            <span className={`font-semibold ${sale.paymentStatus === 'Paid' ? 'text-emerald-700' : 'text-amber-700'}`}>
-              {sale.paymentStatus}
+            <span
+              className={`font-bold px-1.5 py-0.5 rounded text-[10px] uppercase font-mono ${
+                sale.isCancelled
+                  ? 'bg-rose-100 text-rose-800'
+                  : sale.paymentStatus === 'Paid'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-amber-100 text-amber-900 border border-amber-300'
+              }`}
+            >
+              {sale.isCancelled
+                ? 'CANCELLED'
+                : sale.paymentStatus === 'Paid'
+                ? 'PAID'
+                : 'PAYMENT PENDING'}
             </span>
           </div>
         </div>
@@ -275,24 +334,55 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
           </div>
         </div>
 
-        {/* QR Code with Verification Link */}
-        <div className="col-span-2 text-center flex flex-col items-center">
-          {qrCodeUrl ? (
-            <a
-              href={verifyUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="group block p-1 bg-white border border-slate-300 rounded shadow-2xs hover:border-teal-600 transition"
-              title="Click to view online verification"
-            >
-              <img src={qrCodeUrl} alt="Verify Invoice QR" className="w-16 h-16 object-contain" />
-              <span className="text-[8px] text-slate-500 group-hover:text-teal-700 block mt-0.5 font-medium">
-                Scan to Verify
+        {/* Dynamic Payment QR Code or PAID Status Stamp */}
+        <div className="col-span-2 text-center flex flex-col items-center justify-end">
+          {isPaid ? (
+            <div className="p-1.5 bg-emerald-50 border-2 border-emerald-600 rounded-lg flex flex-col items-center justify-center min-w-[76px] shadow-2xs">
+              <div className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center mb-0.5">
+                <Check className="w-3.5 h-3.5 stroke-[3]" />
+              </div>
+              <span className="text-xs font-black text-emerald-800 tracking-wider">PAID</span>
+              <span className="text-[7.5px] font-bold text-emerald-700 leading-tight uppercase">BILL SETTLED</span>
+              {sale.paymentMode && (
+                <span className="text-[7px] text-emerald-600 uppercase font-mono mt-0.5">
+                  via {sale.paymentMode}
+                </span>
+              )}
+            </div>
+          ) : !hasUpi ? (
+            <div className="p-1.5 bg-amber-50/80 border border-dashed border-amber-300 rounded-lg flex flex-col items-center justify-center min-w-[76px] text-center">
+              <AlertCircle className="w-4 h-4 text-amber-600 mb-0.5" />
+              <span className="text-[8px] font-bold text-amber-800 leading-tight">UPI ID not configured</span>
+              <span className="text-[7px] text-amber-700 leading-tight mt-0.5">Set in Settings</span>
+            </div>
+          ) : activeQrUrl ? (
+            <div className="flex flex-col items-center">
+              <a
+                href={upiPaymentUri}
+                target="_blank"
+                rel="noreferrer"
+                className="group block p-1 bg-white border border-slate-300 rounded shadow-2xs hover:border-teal-600 transition"
+                title={`Scan or click to pay ₹${grandTotalStr} via UPI`}
+              >
+                <img
+                  src={activeQrUrl}
+                  alt={`UPI Payment QR for ₹${grandTotalStr}`}
+                  className="w-16 h-16 object-contain"
+                />
+              </a>
+              <span className="text-[8px] font-extrabold text-slate-900 tracking-wider block mt-1 uppercase">
+                SCAN TO PAY
               </span>
-            </a>
+              <span className="text-[8px] font-mono font-bold text-teal-800 block leading-none">
+                ₹{grandTotalStr}
+              </span>
+              <span className="text-[7.5px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1 rounded uppercase tracking-tight block mt-0.5">
+                PAYMENT PENDING
+              </span>
+            </div>
           ) : (
             <div className="w-16 h-16 bg-slate-100 border border-slate-200 rounded flex items-center justify-center text-[9px] text-slate-400">
-              QR
+              Generating QR...
             </div>
           )}
         </div>
@@ -311,7 +401,7 @@ export const InvoiceTemplate: React.FC<InvoiceTemplateProps> = ({
 
       {/* ERP Attribution Footnote */}
       <div className="text-[9px] text-slate-400 text-center border-t border-slate-200 mt-3 pt-1" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-        Apex Medi Sales ERP · Ph: 9113917343 · System Verified GST Invoice
+        Apex Medi Sales ERP · Ph: {profile.phone || '9113917343'} · Tax Invoice
       </div>
     </div>
   );

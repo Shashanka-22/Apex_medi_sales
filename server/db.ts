@@ -194,7 +194,7 @@ export interface Sale {
   customerStateCode?: string;
   invoiceDate: string;
   paymentMode: 'Cash' | 'UPI' | 'Card' | 'Credit';
-  paymentStatus: 'Paid' | 'Partial' | 'Unpaid';
+  paymentStatus: 'Paid' | 'Pending' | 'Partial' | 'Unpaid';
   totalItems: number;
   taxableAmount: number;
   cgstAmount: number;
@@ -1336,6 +1336,69 @@ class DatabaseEngine {
       entityType: 'Sale',
       entityId: sale.id,
       details: `Cancelled invoice ${sale.invoiceNumber}. Reason: ${reason}`,
+    });
+
+    this.persist();
+    return sale;
+  }
+
+  // --- Transactions: Mark Sale as Paid ---
+  public async markSaleAsPaid(
+    saleId: string,
+    details?: { paymentMode?: string; notes?: string },
+    userId?: string,
+    userName?: string
+  ): Promise<Sale> {
+    const state = this.getState();
+    const sale = state.sales.find((s) => s.id === saleId || s.invoiceNumber === saleId);
+    if (!sale) throw new Error('Sale invoice not found');
+    if (sale.isCancelled) throw new Error('Cannot mark a cancelled invoice as paid');
+    if (sale.paymentStatus === 'Paid') return sale;
+
+    const previousStatus = sale.paymentStatus;
+    sale.paymentStatus = 'Paid';
+    sale.paidAmount = sale.grandTotal;
+    sale.balanceAmount = 0;
+    if (details?.paymentMode) {
+      sale.paymentMode = details.paymentMode as any;
+    }
+    sale.updatedAt = new Date().toISOString();
+
+    // Reconcile customer balance and ledger if customer was previously debited
+    if (sale.customerId && (previousStatus === 'Pending' || previousStatus === 'Unpaid' || previousStatus === 'Partial')) {
+      const customer = state.customers.find((c) => c.id === sale.customerId);
+      if (customer && customer.currentBalance > 0) {
+        customer.currentBalance = Math.max(0, customer.currentBalance - sale.grandTotal);
+        customer.updatedAt = new Date().toISOString();
+
+        const cLedg: CustomerLedgerEntry = {
+          id: `cldg_${Date.now()}`,
+          customerId: customer.id,
+          date: new Date().toISOString(),
+          voucherType: 'RECEIPT',
+          voucherNumber: `RCP-${sale.invoiceNumber}`,
+          debit: 0,
+          credit: sale.grandTotal,
+          balance: customer.currentBalance,
+          reference: sale.invoiceNumber,
+          remarks: `Payment received for Invoice ${sale.invoiceNumber} via ${sale.paymentMode}`,
+          createdAt: new Date().toISOString(),
+        };
+        state.customerLedgers.unshift(cLedg);
+        await neonAdapter.persistCustomer(customer);
+        await neonAdapter.persistCustomerLedger(cLedg);
+      }
+    }
+
+    await neonAdapter.persistSale(sale);
+
+    this.logAudit({
+      userId,
+      userName,
+      action: 'MARK_SALE_PAID',
+      entityType: 'Sale',
+      entityId: sale.id,
+      details: `Confirmed payment for Invoice ${sale.invoiceNumber}: ₹${sale.grandTotal} (${sale.paymentMode})`,
     });
 
     this.persist();

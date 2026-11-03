@@ -50,6 +50,8 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
   const [customerGstin, setCustomerGstin] = useState<string>('');
   const [customerStateCode, setCustomerStateCode] = useState<string>('29');
   const [paymentMode, setPaymentMode] = useState<'Cash' | 'UPI' | 'Card' | 'Credit'>('Cash');
+  const [cashReceivedConfirmed, setCashReceivedConfirmed] = useState<boolean>(true);
+  const [cardConfirmed, setCardConfirmed] = useState<boolean>(true);
   const [billDiscount, setBillDiscount] = useState<number>(0);
 
   // Quick Customer Create Modal
@@ -310,6 +312,25 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
     setError(null);
 
     try {
+      let finalPaymentStatus: 'Paid' | 'Pending' | 'Partial' | 'Unpaid' = 'Pending';
+      let finalPaidAmount = 0;
+      let finalBalanceAmount = totals.grandTotal;
+
+      if (paymentMode === 'Cash' && cashReceivedConfirmed) {
+        finalPaymentStatus = 'Paid';
+        finalPaidAmount = totals.grandTotal;
+        finalBalanceAmount = 0;
+      } else if (paymentMode === 'Card' && cardConfirmed) {
+        finalPaymentStatus = 'Paid';
+        finalPaidAmount = totals.grandTotal;
+        finalBalanceAmount = 0;
+      } else {
+        // UPI, Credit, or unconfirmed payments are initially Pending
+        finalPaymentStatus = 'Pending';
+        finalPaidAmount = 0;
+        finalBalanceAmount = totals.grandTotal;
+      }
+
       const salePayload = {
         invoiceNumber,
         invoiceSeries,
@@ -320,7 +341,7 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
         customerStateCode,
         invoiceDate: new Date().toISOString(),
         paymentMode,
-        paymentStatus: paymentMode === 'Credit' ? 'Unpaid' : 'Paid',
+        paymentStatus: finalPaymentStatus,
         totalItems: items.length,
         taxableAmount: totals.taxableAmount,
         cgstAmount: totals.cgstAmount,
@@ -330,8 +351,8 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
         additionalCharges: 0,
         roundOff: totals.roundOff,
         grandTotal: totals.grandTotal,
-        paidAmount: paymentMode === 'Credit' ? 0 : totals.grandTotal,
-        balanceAmount: paymentMode === 'Credit' ? totals.grandTotal : 0,
+        paidAmount: finalPaidAmount,
+        balanceAmount: finalBalanceAmount,
         items: items.map((i) => ({
           medicineId: i.medicineId,
           medicineName: i.medicineName,
@@ -465,6 +486,57 @@ export const BillingView: React.FC<BillingViewProps> = ({ profile, onInvoiceCrea
                 </button>
               ))}
             </div>
+
+            {/* Payment Mode Status Context */}
+            {paymentMode === 'UPI' && (
+              <div className="p-2 bg-teal-50 border border-teal-200 rounded-lg text-[11px] text-teal-900 flex items-start gap-1.5 mt-1.5">
+                <span className="font-bold shrink-0">📱 UPI:</span>
+                <span>Invoice will be generated with status <strong>Pending</strong> and dynamic <strong>SCAN TO PAY</strong> QR code. Mark as Paid once payment is verified.</span>
+              </div>
+            )}
+
+            {paymentMode === 'Cash' && (
+              <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-[11px] text-emerald-900 mt-1.5 space-y-1">
+                <label className="flex items-center gap-2 cursor-pointer font-medium">
+                  <input
+                    type="checkbox"
+                    checked={cashReceivedConfirmed}
+                    onChange={(e) => setCashReceivedConfirmed(e.target.checked)}
+                    className="w-3.5 h-3.5 text-teal-600 rounded focus:ring-teal-500"
+                  />
+                  <span>Cash received in full from customer</span>
+                </label>
+                <div className="text-[10px] text-emerald-700 pl-5">
+                  {cashReceivedConfirmed
+                    ? 'Status: PAID immediately on finalization'
+                    : 'Status: PENDING until physical cash is collected'}
+                </div>
+              </div>
+            )}
+
+            {paymentMode === 'Card' && (
+              <div className="p-2 bg-sky-50 border border-sky-200 rounded-lg text-[11px] text-sky-900 mt-1.5 space-y-1">
+                <label className="flex items-center gap-2 cursor-pointer font-medium">
+                  <input
+                    type="checkbox"
+                    checked={cardConfirmed}
+                    onChange={(e) => setCardConfirmed(e.target.checked)}
+                    className="w-3.5 h-3.5 text-sky-600 rounded focus:ring-sky-500"
+                  />
+                  <span>Card charge approved on POS card machine</span>
+                </label>
+                <div className="text-[10px] text-sky-700 pl-5">
+                  {cardConfirmed ? 'Status: PAID' : 'Status: PENDING'}
+                </div>
+              </div>
+            )}
+
+            {paymentMode === 'Credit' && (
+              <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900 flex items-start gap-1.5 mt-1.5">
+                <span className="font-bold shrink-0">📋 Credit:</span>
+                <span>Recorded as <strong>Pending / Due</strong> and debited to buyer ledger.</span>
+              </div>
+            )}
           </div>
 
           <div>

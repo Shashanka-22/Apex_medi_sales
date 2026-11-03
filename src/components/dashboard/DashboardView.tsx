@@ -252,9 +252,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         {sale.customerName}
                       </td>
                       <td className="p-3">
-                        <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">
-                          {sale.paymentMode}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] px-2 py-0.5 rounded font-medium bg-slate-100 text-slate-700">
+                            {sale.paymentMode}
+                          </span>
+                          {sale.isCancelled ? (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded font-bold bg-rose-100 text-rose-700">
+                              VOID
+                            </span>
+                          ) : sale.paymentStatus === 'Paid' ? (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-100 text-emerald-800">
+                              PAID
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                              PENDING
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3 text-right font-mono font-bold text-slate-900">
                         ₹{sale.grandTotal.toFixed(2)}

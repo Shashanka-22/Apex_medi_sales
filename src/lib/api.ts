@@ -144,7 +144,7 @@ export interface Sale {
   customerStateCode?: string;
   invoiceDate: string;
   paymentMode: 'Cash' | 'UPI' | 'Card' | 'Credit';
-  paymentStatus: 'Paid' | 'Partial' | 'Unpaid';
+  paymentStatus: 'Paid' | 'Pending' | 'Partial' | 'Unpaid';
   totalItems: number;
   taxableAmount: number;
   cgstAmount: number;
@@ -788,6 +788,15 @@ class ApiService {
     const res = await this.request<Sale>(`/api/sales/${saleId}/cancel`, {
       method: 'POST',
       body: JSON.stringify({ reason }),
+    });
+    syncManager.notifyMutation('sales');
+    return res;
+  }
+
+  async markSaleAsPaid(saleId: string, details?: { paymentMode?: string; notes?: string }): Promise<Sale> {
+    const res = await this.request<Sale>(`/api/sales/${saleId}/mark-paid`, {
+      method: 'POST',
+      body: JSON.stringify(details || {}),
     });
     syncManager.notifyMutation('sales');
     return res;
